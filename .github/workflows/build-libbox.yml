@@ -1,0 +1,54 @@
+name: Build libbox
+
+# Builds the sing-box Android core (libbox.aar) via gomobile. Run manually.
+# The resulting artifact is dropped into android/app/libs to give the Android
+# VpnService a real proxy engine. Pinned to the same sing-box version as the
+# Windows core so generated configs stay compatible.
+on:
+  workflow_dispatch:
+    inputs:
+      singbox_ref:
+        description: sing-box git ref (tag)
+        default: v1.13.14
+
+jobs:
+  libbox:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone sing-box
+        run: git clone --depth 1 -b "${{ github.event.inputs.singbox_ref }}" https://github.com/SagerNet/sing-box.git
+
+      - name: Detect Go version
+        id: go
+        run: echo "version=$(grep -m1 '^go ' sing-box/go.mod | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          cache-dependency-path: sing-box/go.sum
+
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27c
+          add-to-path: false
+
+      - name: Install gomobile
+        working-directory: sing-box
+        run: make lib_install
+
+      - name: Build libbox.aar
+        working-directory: sing-box
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          make lib_android
+          ls -la libbox.aar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libbox-aar
+          path: sing-box/libbox.aar
+          if-no-files-found: error
