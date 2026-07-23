@@ -37,14 +37,24 @@ jobs:
         working-directory: sing-box
         run: make lib_install
 
-      - name: Build libbox.aar
+      # Build libbox directly (not `make lib_android`) so we can drop the
+      # `with_naive_outbound` tag — it pulls in a prebuilt libcronet.a that the
+      # NDK linker rejects (unknown relocation 315). We don't use the naive
+      # outbound, nor tailscale, so excluding them removes the problem entirely.
+      - name: Build libbox.aar (arm64)
         working-directory: sing-box
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
           NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
-          make lib_android
+          gomobile bind -v \
+            -target=android/arm64 \
+            -androidapi 24 \
+            -tags "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0" \
+            -ldflags "-X github.com/sagernet/sing-box/constant.Version=${{ github.event.inputs.singbox_ref }} -checklinkname=0 -s -w" \
+            -o libbox.aar \
+            ./experimental/libbox
           ls -la libbox.aar
 
       - uses: actions/upload-artifact@v4
