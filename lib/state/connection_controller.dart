@@ -95,6 +95,15 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     await _engine.start(node, _ref.read(settingsProvider));
   }
 
+  /// Connects to a specific node by id; empty/unknown id falls back to the
+  /// normal resolution (used by trigger apps that target a chosen profile).
+  Future<void> connectToId(String? nodeId) async {
+    if (nodeId == null || nodeId.isEmpty) return connect();
+    final node = _ref.read(profileProvider).nodeById(nodeId);
+    if (node != null) return connectTo(node);
+    return connect();
+  }
+
   Future<void> disconnect() => _engine.stop();
 
   ProxyNode? _resolveNode() {

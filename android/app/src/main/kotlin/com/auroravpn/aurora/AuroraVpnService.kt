@@ -35,6 +35,10 @@ class AuroraVpnService : VpnService() {
         const val ACTION_STOP = "com.auroravpn.aurora.STOP"
         const val EXTRA_CONFIG = "config"
 
+        // Flip to true once the sing-box libbox AAR is dropped in and started
+        // at the marked hand-off point in startTunnel().
+        const val LIBBOX_READY = false
+
         private const val CHANNEL_ID = "aurora_vpn"
         private const val NOTIFICATION_ID = 0xA0
 
@@ -56,6 +60,16 @@ class AuroraVpnService : VpnService() {
 
     private fun startTunnel(config: String?) {
         emitStatus("connecting")
+
+        // The sing-box core (libbox) is not embedded yet. Raising a TUN with no
+        // core behind it would route the whole device into a black hole and cut
+        // its connectivity, so refuse cleanly until libbox is wired in below.
+        if (!LIBBOX_READY) {
+            emitStatus("error")
+            stopSelf()
+            return
+        }
+
         try {
             val builder = Builder()
                 .setSession("Aurora")

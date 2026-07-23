@@ -72,6 +72,12 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                                 weight: FontWeight.w700,
                                 color: AppColors.auroraTeal)),
                       ),
+                    IconButton(
+                      tooltip: 'Обновить список',
+                      onPressed: () => ref.invalidate(installedAppsProvider),
+                      icon: const Icon(Icons.refresh_rounded),
+                      color: AppColors.mist,
+                    ),
                   ],
                 ),
               ),
@@ -83,7 +89,17 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                         style: AppType.ui(13, color: AppColors.signalRed)),
                   ),
                   data: (apps) {
-                    final list = _filtered(apps, selected);
+                    // Always show selected apps even if they aren't currently
+                    // running / in the scanned list, so a selection never looks
+                    // lost after reopening the app.
+                    final knownIds = apps.map((a) => a.id).toSet();
+                    final merged = [
+                      ...apps,
+                      for (final id in selected)
+                        if (!knownIds.contains(id))
+                          InstalledApp(id: id, name: _pretty(id)),
+                    ];
+                    final list = _filtered(merged, selected);
                     return ListView(
                       padding: const EdgeInsets.fromLTRB(20, 6, 20, 28),
                       children: [
@@ -343,6 +359,10 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
         PerAppMode.allowlist => 'Только эти',
         PerAppMode.blocklist => 'Кроме этих',
       };
+
+  /// `chrome.exe` → `chrome`; a package id is left as-is.
+  String _pretty(String id) =>
+      id.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
 }
 
 class _AppRow extends StatelessWidget {

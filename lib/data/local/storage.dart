@@ -42,6 +42,9 @@ class Storage {
     return null;
   }
 
-  Future<void> writeJson(String key, Object value) =>
-      _file(key).writeAsString(jsonEncode(value));
+  Future<void> writeJson(String key, Object value) async {
+    // Synchronous flush so a selection can't be lost if the app is closed
+    // immediately after a toggle.
+    _file(key).writeAsStringSync(jsonEncode(value));
+  }
 }

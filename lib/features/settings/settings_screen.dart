@@ -292,33 +292,41 @@ class _StackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
           const Icon(Icons.layers_rounded, color: AppColors.mist, size: 22),
           const SizedBox(width: 14),
           Text('Сетевой стек', style: AppType.ui(14.5, weight: FontWeight.w600)),
           const Spacer(),
-          for (final st in TunStack.values)
-            Padding(
-              padding: const EdgeInsets.only(left: 6),
-              child: GestureDetector(
-                onTap: () => onPick(st),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: st == stack ? AppColors.auroraTeal.withValues(alpha: 0.16) : AppColors.voidBg,
-                    borderRadius: BorderRadius.circular(9),
-                    border: Border.all(
-                        color: st == stack ? AppColors.auroraTeal : AppColors.hairline),
-                  ),
-                  child: Text(st.label,
-                      style: AppType.mono(11,
-                          weight: FontWeight.w700,
-                          color: st == stack ? AppColors.auroraTeal : AppColors.mist)),
-                ),
+          PopupMenuButton<TunStack>(
+            color: AppColors.slate,
+            initialValue: stack,
+            onSelected: onPick,
+            itemBuilder: (_) => [
+              for (final st in TunStack.values)
+                PopupMenuItem(value: st, child: Text(st.label)),
+            ],
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.voidBg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.hairline),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(stack.label,
+                      style: AppType.mono(12,
+                          weight: FontWeight.w700, color: AppColors.auroraTeal)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_drop_down_rounded,
+                      color: AppColors.mist, size: 20),
+                ],
               ),
             ),
+          ),
         ],
       ),
     );

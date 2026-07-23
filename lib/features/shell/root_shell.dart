@@ -80,13 +80,15 @@ class _RootShellState extends ConsumerState<RootShell> {
     if (triggers.isEmpty) return;
     final running = await ref.read(appInventoryProvider).runningIds();
     if (!mounted) return;
-    final wanted = triggers.map((e) => e.toLowerCase()).toSet();
-    final active = wanted.intersection(running);
+    final active = <String>{
+      for (final id in triggers.keys)
+        if (running.contains(id.toLowerCase())) id,
+    };
     final newly = active.difference(_prevTriggersRunning);
     _prevTriggersRunning = active;
-    if (newly.isNotEmpty &&
-        !ref.read(connectionProvider).status.isActive) {
-      ref.read(connectionProvider.notifier).connect();
+    if (newly.isNotEmpty && !ref.read(connectionProvider).status.isActive) {
+      // Connect to the profile chosen for the app that just launched.
+      ref.read(connectionProvider.notifier).connectToId(triggers[newly.first]);
     }
   }
 

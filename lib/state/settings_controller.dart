@@ -45,9 +45,16 @@ class SettingsController extends StateNotifier<VpnSettings> {
   }
 
   void toggleTriggerApp(String id) {
-    final set = {...state.triggerApps};
-    set.contains(id) ? set.remove(id) : set.add(id);
-    _commit(state.copyWith(triggerApps: set));
+    final map = {...state.triggerApps};
+    map.containsKey(id) ? map.remove(id) : map[id] = '';
+    _commit(state.copyWith(triggerApps: map));
+  }
+
+  /// Sets which server a trigger app connects to ('' = current server).
+  void setTriggerProfile(String id, String nodeId) {
+    final map = {...state.triggerApps};
+    map[id] = nodeId;
+    _commit(state.copyWith(triggerApps: map));
   }
 
   void clearTriggerApps() => _commit(state.copyWith(triggerApps: {}));

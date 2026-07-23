@@ -27,8 +27,9 @@ class VpnSettings {
   final PerAppMode perAppMode;
   final Set<String> perAppSelected;
 
-  /// Apps whose launch auto-connects the tunnel (trigger apps).
-  final Set<String> triggerApps;
+  /// Apps whose launch auto-connects the tunnel, mapped to the node id to
+  /// connect (empty value = use the currently selected server).
+  final Map<String, String> triggerApps;
   final bool tunMode;
   final TunStack tunStack;
   final bool bypassLan;
@@ -46,7 +47,7 @@ class VpnSettings {
     RoutingMode? routingMode,
     PerAppMode? perAppMode,
     Set<String>? perAppSelected,
-    Set<String>? triggerApps,
+    Map<String, String>? triggerApps,
     bool? tunMode,
     TunStack? tunStack,
     bool? bypassLan,
@@ -85,7 +86,7 @@ class VpnSettings {
         'routingMode': routingMode.name,
         'perAppMode': perAppMode.name,
         'perAppSelected': perAppSelected.toList(),
-        'triggerApps': triggerApps.toList(),
+        'triggerApps': triggerApps,
         'tunMode': tunMode,
         'tunStack': tunStack.name,
         'bypassLan': bypassLan,
@@ -105,8 +106,8 @@ class VpnSettings {
         perAppMode: _enum(PerAppMode.values, j['perAppMode'], PerAppMode.off),
         perAppSelected:
             ((j['perAppSelected'] as List?)?.cast<String>() ?? const []).toSet(),
-        triggerApps:
-            ((j['triggerApps'] as List?)?.cast<String>() ?? const []).toSet(),
+        triggerApps: ((j['triggerApps'] as Map?) ?? const {})
+            .map((k, v) => MapEntry('$k', '$v')),
         tunMode: j['tunMode'] as bool? ?? true,
         tunStack: _enum(TunStack.values, j['tunStack'], TunStack.mixed),
         bypassLan: j['bypassLan'] as bool? ?? true,

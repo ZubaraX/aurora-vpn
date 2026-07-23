@@ -3,8 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/country_flags.dart';
 import '../../data/models/installed_app.dart';
+import '../../data/models/proxy_node.dart';
 import '../../state/connection_controller.dart';
+import '../../state/profile_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../widgets/glass_card.dart';
 
@@ -104,7 +107,14 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => const SizedBox.shrink(),
                 data: (apps) {
-                  var list = apps.where((a) => !a.isSystem).toList();
+                  final nodes = ref.watch(profileProvider).nodes;
+                  final known = apps.map((a) => a.id).toSet();
+                  var list = [
+                    ...apps.where((a) => !a.isSystem),
+                    for (final id in selected.keys)
+                      if (!known.contains(id))
+                        InstalledApp(id: id, name: _pretty(id)),
+                  ];
                   if (_query.isNotEmpty) {
                     final q = _query.toLowerCase();
                     list = list.where((a) => a.name.toLowerCase().contains(q)).toList();
@@ -114,8 +124,10 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                     itemCount: list.length,
                     itemBuilder: (_, i) => _row(
                       list[i],
-                      selected.contains(list[i].id),
-                      () => ctrl.toggleTriggerApp(list[i].id),
+                      selected.containsKey(list[i].id),
+                      selected[list[i].id] ?? '',
+                      nodes,
+                      ctrl,
                     ),
                   );
                 },
@@ -127,45 +139,122 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
     );
   }
 
-  Widget _row(InstalledApp app, bool checked, VoidCallback onTap) {
+  Widget _row(InstalledApp app, bool checked, String profileId,
+      List<ProxyNode> nodes, SettingsController ctrl) {
+    ProxyNode? profileNode;
+    for (final n in nodes) {
+      if (n.id == profileId) {
+        profileNode = n;
+        break;
+      }
+    }
+    final label = profileId.isEmpty
+        ? 'Текущий сервер'
+        : (profileNode != null
+            ? CountryFlags.cleanName(profileNode.name)
+            : 'узел удалён');
+
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       highlight: checked,
-      onTap: onTap,
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: AppColors.slateHi,
-              borderRadius: BorderRadius.circular(11),
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.slateHi,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child:
+                    const Icon(Icons.apps_rounded, size: 20, color: AppColors.mist),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(app.name,
+                    style: AppType.ui(14, weight: FontWeight.w600),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+              GestureDetector(
+                onTap: () => ctrl.toggleTriggerApp(app.id),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    gradient: checked ? AppColors.auroraGradient : null,
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(
+                        color: checked
+                            ? Colors.transparent
+                            : AppColors.hairlineStrong),
+                  ),
+                  child: checked
+                      ? const Icon(Icons.check_rounded,
+                          size: 17, color: AppColors.voidBg)
+                      : null,
+                ),
+              ),
+            ],
+          ),
+          if (checked) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.dns_rounded, size: 15, color: AppColors.mistDim),
+                const SizedBox(width: 8),
+                Text('Профиль', style: AppType.ui(12, color: AppColors.mist)),
+                const Spacer(),
+                PopupMenuButton<String>(
+                  color: AppColors.slate,
+                  onSelected: (v) => ctrl.setTriggerProfile(app.id, v),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: '', child: Text('Текущий сервер')),
+                    for (final n in nodes)
+                      PopupMenuItem(
+                        value: n.id,
+                        child: Text(CountryFlags.cleanName(n.name),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: AppColors.voidBg,
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(color: AppColors.hairline),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 150),
+                          child: Text(label,
+                              style: AppType.ui(12.5,
+                                  weight: FontWeight.w700,
+                                  color: AppColors.auroraTeal),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        const Icon(Icons.arrow_drop_down_rounded,
+                            color: AppColors.mist, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-            child: const Icon(Icons.apps_rounded, size: 20, color: AppColors.mist),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(app.name,
-                style: AppType.ui(14, weight: FontWeight.w600),
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            width: 26,
-            height: 26,
-            decoration: BoxDecoration(
-              gradient: checked ? AppColors.auroraGradient : null,
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(
-                  color: checked ? Colors.transparent : AppColors.hairlineStrong),
-            ),
-            child: checked
-                ? const Icon(Icons.check_rounded, size: 17, color: AppColors.voidBg)
-                : null,
-          ),
+          ],
         ],
       ),
     );
   }
+
+  /// `chrome.exe` → `chrome`; a package id is left as-is.
+  String _pretty(String id) =>
+      id.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
 }
