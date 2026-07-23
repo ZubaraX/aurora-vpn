@@ -1,0 +1,75 @@
+name: Release
+
+# Tag a commit `vX.Y.Z` (matching kAppVersion in lib/core/constants.dart) to
+# build Windows + Android and publish a GitHub Release the app auto-updates from.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.44.7'
+  SINGBOX_VERSION: '1.13.14'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Bundle sing-box core + wintun
+        shell: pwsh
+        run: |
+          $rel = "build/windows/x64/runner/Release"
+          $v = "${{ env.SINGBOX_VERSION }}"
+          Invoke-WebRequest "https://github.com/SagerNet/sing-box/releases/download/v$v/sing-box-$v-windows-amd64.zip" -OutFile sb.zip
+          Expand-Archive sb.zip -DestinationPath sb -Force
+          Copy-Item (Get-ChildItem sb -Recurse -Filter sing-box.exe)[0].FullName "$rel/sing-box.exe"
+          $lc = Get-ChildItem sb -Recurse -Filter libcronet.dll
+          if ($lc) { Copy-Item $lc[0].FullName "$rel/libcronet.dll" }
+          Invoke-WebRequest "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile wintun.zip
+          Expand-Archive wintun.zip -DestinationPath wt -Force
+          Copy-Item "wt/wintun/bin/amd64/wintun.dll" "$rel/wintun.dll"
+          Compress-Archive -Path "$rel/*" -DestinationPath "aurora-windows-x64.zip" -Force
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: aurora-windows-x64.zip
+          fail_on_unmatched_files: true
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Set up release signing
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: Name the APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk "aurora-${{ github.ref_name }}.apk"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: aurora-*.apk
+          fail_on_unmatched_files: true

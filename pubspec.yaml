@@ -1,0 +1,42 @@
+name: aurora
+description: "Aurora — a premium universal proxy client (sing-box core) with subscriptions and per-app routing."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+# No native-plugin dependencies: the app is self-contained so it builds on
+# Windows without Developer Mode / symlink support. Persistence is file-based
+# and fonts are bundled rather than fetched at runtime.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  http: ^1.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/SpaceGrotesk.ttf
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf
+    # Color emoji font so country flags render on Windows (which otherwise
+    # shows regional-indicator letters instead of flags).
+    - family: Twemoji
+      fonts:
+        - asset: assets/fonts/Twemoji.ttf

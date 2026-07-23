@@ -1,0 +1,74 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../data/local/storage.dart';
+import '../data/models/enums.dart';
+import '../data/models/vpn_settings.dart';
+import 'providers.dart';
+
+/// Owns [VpnSettings] and persists every mutation immediately.
+class SettingsController extends StateNotifier<VpnSettings> {
+  SettingsController(this._storage) : super(_load(_storage));
+
+  final Storage _storage;
+
+  static VpnSettings _load(Storage s) {
+    final map = s.readMap(Storage.kSettings);
+    return map == null ? const VpnSettings() : VpnSettings.fromJson(map);
+  }
+
+  void _commit(VpnSettings next) {
+    state = next;
+    _storage.writeJson(Storage.kSettings, state.toJson());
+  }
+
+  void setRoutingMode(RoutingMode mode) =>
+      _commit(state.copyWith(routingMode: mode));
+
+  void setPerAppMode(PerAppMode mode) =>
+      _commit(state.copyWith(perAppMode: mode));
+
+  void toggleApp(String id) {
+    final set = {...state.perAppSelected};
+    set.contains(id) ? set.remove(id) : set.add(id);
+    _commit(state.copyWith(perAppSelected: set));
+  }
+
+  void clearApps() => _commit(state.copyWith(perAppSelected: {}));
+
+  void selectApps(Iterable<String> ids) =>
+      _commit(state.copyWith(perAppSelected: {...state.perAppSelected, ...ids}));
+
+  void deselectApps(Iterable<String> ids) {
+    final set = {...state.perAppSelected}..removeAll(ids);
+    _commit(state.copyWith(perAppSelected: set));
+  }
+
+  void toggleTriggerApp(String id) {
+    final set = {...state.triggerApps};
+    set.contains(id) ? set.remove(id) : set.add(id);
+    _commit(state.copyWith(triggerApps: set));
+  }
+
+  void clearTriggerApps() => _commit(state.copyWith(triggerApps: {}));
+
+  void setActiveNode(String? id) =>
+      _commit(state.copyWith(activeNodeId: id, clearActiveNode: id == null));
+
+  void setTunMode(bool v) => _commit(state.copyWith(tunMode: v));
+  void setTunStack(TunStack v) => _commit(state.copyWith(tunStack: v));
+  void setBypassLan(bool v) => _commit(state.copyWith(bypassLan: v));
+  void setBlockAds(bool v) => _commit(state.copyWith(blockAds: v));
+  void setIpv6(bool v) => _commit(state.copyWith(ipv6: v));
+  void setAutoConnect(bool v) => _commit(state.copyWith(autoConnect: v));
+  void setKillSwitch(bool v) => _commit(state.copyWith(killSwitch: v));
+  void setDnsRemote(String v) => _commit(state.copyWith(dnsRemote: v));
+  void setDnsDirect(String v) => _commit(state.copyWith(dnsDirect: v));
+  void setThemeMode(ThemeMode v) => _commit(state.copyWith(themeMode: v));
+  void setLocale(String v) => _commit(state.copyWith(locale: v));
+}
+
+final settingsProvider =
+    StateNotifierProvider<SettingsController, VpnSettings>((ref) {
+  return SettingsController(ref.watch(storageProvider));
+});
