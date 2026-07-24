@@ -101,6 +101,7 @@ class AppInventory {
           id: image,
           name: image.replaceAll(RegExp(r'\.exe$', caseSensitive: false), ''),
           isSystem: isSystem,
+          hasLauncher: !isSystem,
         ),
       );
     }
@@ -148,6 +149,7 @@ class AppInventory {
       id: 'system.android',
       name: 'Системные сервисы',
       isSystem: true,
+      hasLauncher: false,
     ),
   ];
 }

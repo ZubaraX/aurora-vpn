@@ -179,7 +179,7 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
                   final nodes = ref.watch(profileProvider).nodes;
                   final known = apps.map((a) => a.id).toSet();
                   var list = [
-                    ...apps.where((a) => !a.isSystem),
+                    ...apps.where((a) => !a.isSystemService),
                     for (final id in selected.keys)
                       if (!known.contains(id))
                         InstalledApp(id: id, name: _pretty(id)),

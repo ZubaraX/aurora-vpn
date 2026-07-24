@@ -356,18 +356,27 @@ class MainActivity : FlutterActivity() {
         if (requestCode == VPN_REQUEST && resultCode == RESULT_OK) launchTunnel()
     }
 
-    /** Launchable apps, for the per-app split-tunnelling screen. */
+    /**
+     * User-facing apps for per-app routing.
+     *
+     * Preinstalled apps such as YouTube carry FLAG_SYSTEM even though they are
+     * normal launcher apps. Preserve that distinction so Dart can hide actual
+     * system services without hiding OEM/Google applications.
+     */
     private fun listInstalledApps(): List<Map<String, Any>> {
         val pm = packageManager
         val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         return apps.mapNotNull { info ->
-            val launchable = pm.getLaunchIntentForPackage(info.packageName) != null
+            val launchable =
+                pm.getLaunchIntentForPackage(info.packageName) != null ||
+                    pm.getLeanbackLaunchIntentForPackage(info.packageName) != null
             val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
             if (!launchable && isSystem) return@mapNotNull null
             mapOf(
                 "id" to info.packageName,
                 "name" to pm.getApplicationLabel(info).toString(),
-                "isSystem" to isSystem
+                "isSystem" to isSystem,
+                "hasLauncher" to launchable
             )
         }
     }
