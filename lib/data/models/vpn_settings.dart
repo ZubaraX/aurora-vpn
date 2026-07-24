@@ -10,7 +10,7 @@ class VpnSettings {
     this.perAppSelected = const {},
     this.triggerApps = const {},
     this.triggerWifiProfiles = const {},
-    this.triggerMobileProfiles = const {},
+    this.triggerMobileProfiles = const <String, List<String>>{},
     this.tunMode = true,
     this.tunStack = TunStack.mixed,
     this.bypassLan = true,
@@ -35,7 +35,7 @@ class VpnSettings {
   /// separate Wi-Fi and mobile profiles were introduced.
   final Map<String, String> triggerApps;
   final Map<String, String> triggerWifiProfiles;
-  final Map<String, String> triggerMobileProfiles;
+  final Map<String, List<String>> triggerMobileProfiles;
   final bool tunMode;
   final TunStack tunStack;
   final bool bypassLan;
@@ -55,7 +55,7 @@ class VpnSettings {
     Set<String>? perAppSelected,
     Map<String, String>? triggerApps,
     Map<String, String>? triggerWifiProfiles,
-    Map<String, String>? triggerMobileProfiles,
+    Map<String, List<String>>? triggerMobileProfiles,
     bool? tunMode,
     TunStack? tunStack,
     bool? bypassLan,
@@ -122,8 +122,7 @@ class VpnSettings {
     triggerWifiProfiles: ((j['triggerWifiProfiles'] as Map?) ?? const {}).map(
       (k, v) => MapEntry('$k', '$v'),
     ),
-    triggerMobileProfiles: ((j['triggerMobileProfiles'] as Map?) ?? const {})
-        .map((k, v) => MapEntry('$k', '$v')),
+    triggerMobileProfiles: _mobileProfiles(j['triggerMobileProfiles']),
     tunMode: j['tunMode'] as bool? ?? true,
     tunStack: _enum(TunStack.values, j['tunStack'], TunStack.mixed),
     bypassLan: j['bypassLan'] as bool? ?? true,
@@ -141,12 +140,37 @@ class VpnSettings {
   /// Profile selected for a trigger app on the current connection type.
   /// Unknown/desktop connection types keep the legacy/default selection.
   String triggerProfileFor(String appId, String networkType) {
+    final profiles = triggerProfilesFor(appId, networkType);
+    return profiles.isEmpty ? '' : profiles.first;
+  }
+
+  /// Ordered profiles selected for a trigger app and upstream network.
+  ///
+  /// Mobile supports up to 20 candidates. Old settings that stored one string
+  /// are migrated to a one-item list by [_mobileProfiles].
+  List<String> triggerProfilesFor(String appId, String networkType) {
     final fallback = triggerApps[appId] ?? '';
-    return switch (networkType) {
-      'wifi' => triggerWifiProfiles[appId] ?? fallback,
-      'mobile' => triggerMobileProfiles[appId] ?? fallback,
-      _ => fallback,
+    final profiles = switch (networkType) {
+      'wifi' => [triggerWifiProfiles[appId] ?? fallback],
+      'mobile' =>
+        triggerMobileProfiles[appId] ??
+            (fallback.isEmpty ? const <String>[] : [fallback]),
+      _ => [fallback],
     };
+    return profiles.where((id) => id.isNotEmpty).toSet().take(20).toList();
+  }
+
+  static Map<String, List<String>> _mobileProfiles(Object? raw) {
+    final source = raw is Map ? raw : const {};
+    return source.map((key, value) {
+      final ids = value is List
+          ? value.map((id) => '$id')
+          : ('$value'.isEmpty ? const <String>[] : ['$value']);
+      return MapEntry(
+        '$key',
+        ids.where((id) => id.isNotEmpty).toSet().take(20).toList(),
+      );
+    });
   }
 
   static T _enum<T extends Enum>(List<T> values, Object? name, T fallback) {

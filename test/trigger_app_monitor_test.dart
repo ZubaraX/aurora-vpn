@@ -11,8 +11,8 @@ void main() {
       'com.example.chat': 'chat-wifi',
     },
     triggerMobileProfiles: {
-      'com.example.video': 'video-mobile',
-      'com.example.chat': 'chat-mobile',
+      'com.example.video': ['video-mobile', 'video-mobile-backup'],
+      'com.example.chat': ['chat-mobile'],
     },
   );
 
@@ -78,6 +78,7 @@ void main() {
     );
 
     expect(action?.profileId, 'video-mobile');
+    expect(action?.profileIds, ['video-mobile', 'video-mobile-backup']);
   });
 
   test('same active profile does not reconnect', () {
@@ -89,6 +90,20 @@ void main() {
       networkType: 'wifi',
       connectionStatus: ConnectionStatus.connected,
       activeNodeId: 'video-wifi',
+    );
+
+    expect(action, isNull);
+  });
+
+  test('active mobile backup does not cause an unnecessary reconnect', () {
+    final monitor = TriggerAppMonitor();
+
+    final action = monitor.evaluate(
+      settings: settings,
+      runningIds: {'com.example.video'},
+      networkType: 'mobile',
+      connectionStatus: ConnectionStatus.connected,
+      activeNodeId: 'video-mobile-backup',
     );
 
     expect(action, isNull);

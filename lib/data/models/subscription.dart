@@ -34,10 +34,17 @@ class Subscription {
   double get usedFraction =>
       totalBytes <= 0 ? 0 : (usedBytes / totalBytes).clamp(0.0, 1.0);
 
-  DateTime? get expiresAt =>
-      expireUnix > 0 ? DateTime.fromMillisecondsSinceEpoch(expireUnix * 1000) : null;
+  DateTime? get expiresAt => expireUnix > 0
+      ? DateTime.fromMillisecondsSinceEpoch(expireUnix * 1000)
+      : null;
 
   bool get hasUsage => totalBytes > 0;
+
+  bool isStale({Duration maxAge = const Duration(minutes: 5), DateTime? now}) {
+    final updated = lastUpdated;
+    if (updated == null) return true;
+    return (now ?? DateTime.now()).difference(updated) >= maxAge;
+  }
 
   Subscription copyWith({
     String? name,
@@ -48,48 +55,47 @@ class Subscription {
     int? downloadBytes,
     int? totalBytes,
     int? expireUnix,
-  }) =>
-      Subscription(
-        id: id,
-        name: name ?? this.name,
-        url: url,
-        addedAt: addedAt,
-        lastUpdated: lastUpdated ?? this.lastUpdated,
-        nodeCount: nodeCount ?? this.nodeCount,
-        autoUpdate: autoUpdate ?? this.autoUpdate,
-        uploadBytes: uploadBytes ?? this.uploadBytes,
-        downloadBytes: downloadBytes ?? this.downloadBytes,
-        totalBytes: totalBytes ?? this.totalBytes,
-        expireUnix: expireUnix ?? this.expireUnix,
-      );
+  }) => Subscription(
+    id: id,
+    name: name ?? this.name,
+    url: url,
+    addedAt: addedAt,
+    lastUpdated: lastUpdated ?? this.lastUpdated,
+    nodeCount: nodeCount ?? this.nodeCount,
+    autoUpdate: autoUpdate ?? this.autoUpdate,
+    uploadBytes: uploadBytes ?? this.uploadBytes,
+    downloadBytes: downloadBytes ?? this.downloadBytes,
+    totalBytes: totalBytes ?? this.totalBytes,
+    expireUnix: expireUnix ?? this.expireUnix,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'url': url,
-        'addedAt': addedAt.toIso8601String(),
-        'lastUpdated': lastUpdated?.toIso8601String(),
-        'nodeCount': nodeCount,
-        'autoUpdate': autoUpdate,
-        'uploadBytes': uploadBytes,
-        'downloadBytes': downloadBytes,
-        'totalBytes': totalBytes,
-        'expireUnix': expireUnix,
-      };
+    'id': id,
+    'name': name,
+    'url': url,
+    'addedAt': addedAt.toIso8601String(),
+    'lastUpdated': lastUpdated?.toIso8601String(),
+    'nodeCount': nodeCount,
+    'autoUpdate': autoUpdate,
+    'uploadBytes': uploadBytes,
+    'downloadBytes': downloadBytes,
+    'totalBytes': totalBytes,
+    'expireUnix': expireUnix,
+  };
 
   factory Subscription.fromJson(Map<String, dynamic> j) => Subscription(
-        id: j['id'] as String,
-        name: j['name'] as String,
-        url: j['url'] as String,
-        addedAt: DateTime.parse(j['addedAt'] as String),
-        lastUpdated: j['lastUpdated'] == null
-            ? null
-            : DateTime.parse(j['lastUpdated'] as String),
-        nodeCount: (j['nodeCount'] as num?)?.toInt() ?? 0,
-        autoUpdate: j['autoUpdate'] as bool? ?? true,
-        uploadBytes: (j['uploadBytes'] as num?)?.toInt() ?? 0,
-        downloadBytes: (j['downloadBytes'] as num?)?.toInt() ?? 0,
-        totalBytes: (j['totalBytes'] as num?)?.toInt() ?? 0,
-        expireUnix: (j['expireUnix'] as num?)?.toInt() ?? 0,
-      );
+    id: j['id'] as String,
+    name: j['name'] as String,
+    url: j['url'] as String,
+    addedAt: DateTime.parse(j['addedAt'] as String),
+    lastUpdated: j['lastUpdated'] == null
+        ? null
+        : DateTime.parse(j['lastUpdated'] as String),
+    nodeCount: (j['nodeCount'] as num?)?.toInt() ?? 0,
+    autoUpdate: j['autoUpdate'] as bool? ?? true,
+    uploadBytes: (j['uploadBytes'] as num?)?.toInt() ?? 0,
+    downloadBytes: (j['downloadBytes'] as num?)?.toInt() ?? 0,
+    totalBytes: (j['totalBytes'] as num?)?.toInt() ?? 0,
+    expireUnix: (j['expireUnix'] as num?)?.toInt() ?? 0,
+  );
 }

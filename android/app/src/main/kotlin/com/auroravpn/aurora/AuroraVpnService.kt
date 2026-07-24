@@ -74,6 +74,11 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         @JvmStatic
         fun controllerPort(): Int = publishedControllerPort
+
+        @Volatile private var tunnelActive = false
+
+        @JvmStatic
+        fun isTunnelActive(): Boolean = tunnelActive
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -106,8 +111,11 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private fun startBox(config: String?) {
         if (config == null) {
+            tunnelActive = false
             emitStatus("error"); stopSelf(); return
         }
+        AuroraTileState.saveConfig(this, config)
+        tunnelActive = true
         // A double tap or two trigger polls can deliver the same request while
         // the first one is still starting. Coalesce it instead of reloading a
         // healthy (or not-yet-healthy) core.
@@ -176,6 +184,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 main.post { startStatsPump(generation) }
             } catch (t: Throwable) {
                 if (generation != coreGeneration) return@execute
+                tunnelActive = false
                 requestedConfig = null
                 coreConnected = false
                 logError("start", t)
@@ -255,6 +264,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private fun stopBox() {
         val generation = ++coreGeneration
+        tunnelActive = false
         requestedConfig = null
         coreConnected = false
         emitStatus("disconnecting")
@@ -683,6 +693,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun emitStatus(status: String) {
+        AuroraTileState.updateStatus(this, status)
         main.post { statusSink?.success(status) }
     }
 
@@ -690,6 +701,8 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun onDestroy() {
         ++coreGeneration
+        tunnelActive = false
+        AuroraTileState.updateStatus(this, "disconnected")
         requestedConfig = null
         coreConnected = false
         if (publishedControllerPort == controllerPort) publishedControllerPort = 0

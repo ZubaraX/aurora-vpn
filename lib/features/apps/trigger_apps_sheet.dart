@@ -197,7 +197,7 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
                       list[i],
                       selected.containsKey(list[i].id),
                       settings.triggerProfileFor(list[i].id, 'wifi'),
-                      settings.triggerProfileFor(list[i].id, 'mobile'),
+                      settings.triggerProfilesFor(list[i].id, 'mobile'),
                       nodes,
                       ctrl,
                     ),
@@ -215,7 +215,7 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
     InstalledApp app,
     bool checked,
     String wifiProfileId,
-    String mobileProfileId,
+    List<String> mobileProfileIds,
     List<ProxyNode> nodes,
     SettingsController ctrl,
   ) {
@@ -285,13 +285,17 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
               onSelected: (value) => ctrl.setTriggerWifiProfile(app.id, value),
             ),
             const SizedBox(height: 8),
-            _profileRow(
+            _mobileProfileRow(
               icon: Icons.signal_cellular_alt_rounded,
               title: 'Мобильная сеть',
-              profileId: mobileProfileId,
+              profileIds: mobileProfileIds,
               nodes: nodes,
-              onSelected: (value) =>
-                  ctrl.setTriggerMobileProfile(app.id, value),
+              onTap: () => _showMobileProfiles(
+                app: app,
+                selectedIds: mobileProfileIds,
+                nodes: nodes,
+                ctrl: ctrl,
+              ),
             ),
           ],
         ],
@@ -373,6 +377,245 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _mobileProfileRow({
+    required IconData icon,
+    required String title,
+    required List<String> profileIds,
+    required List<ProxyNode> nodes,
+    required VoidCallback onTap,
+  }) {
+    final byId = {for (final node in nodes) node.id: node};
+    final selected = profileIds
+        .map((id) => byId[id])
+        .whereType<ProxyNode>()
+        .toList();
+    final label = switch (selected.length) {
+      0 => 'Текущий сервер',
+      1 => CountryFlags.cleanName(selected.first.name),
+      _ => '${selected.length} серверов · автоподбор',
+    };
+
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: AppColors.mistDim),
+        const SizedBox(width: 8),
+        Text(title, style: AppType.ui(12, color: AppColors.mist)),
+        const Spacer(),
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: AppColors.voidBg,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(color: AppColors.hairline),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 170),
+                  child: Text(
+                    label,
+                    style: AppType.ui(
+                      12.5,
+                      weight: FontWeight.w700,
+                      color: AppColors.auroraTeal,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                const Icon(
+                  Icons.playlist_add_check_rounded,
+                  color: AppColors.mist,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showMobileProfiles({
+    required InstalledApp app,
+    required List<String> selectedIds,
+    required List<ProxyNode> nodes,
+    required SettingsController ctrl,
+  }) async {
+    final selected = <String>{
+      for (final id in selectedIds)
+        if (nodes.any((node) => node.id == id)) id,
+    };
+    var query = '';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final filtered = query.isEmpty
+              ? nodes
+              : nodes
+                    .where(
+                      (node) => CountryFlags.cleanName(
+                        node.name,
+                      ).toLowerCase().contains(query.toLowerCase()),
+                    )
+                    .toList();
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.86,
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.slateHi,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Мобильная сеть · ${app.name}',
+                                style: AppType.display(18),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              '${selected.length}/20',
+                              style: AppType.mono(
+                                12,
+                                color: selected.length == 20
+                                    ? AppColors.auroraTeal
+                                    : AppColors.mist,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          'Серверы проверяются по порядку. Aurora выберет первый, который реально передаёт данные.',
+                          style: AppType.ui(12, color: AppColors.mist),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          onChanged: (value) =>
+                              setSheetState(() => query = value),
+                          style: AppType.ui(14),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            hintText: 'Поиск сервера',
+                            prefixIcon: Icon(Icons.search_rounded),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, index) {
+                        final node = filtered[index];
+                        final checked = selected.contains(node.id);
+                        final order = selected.toList().indexOf(node.id) + 1;
+                        return CheckboxListTile(
+                          value: checked,
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                          ),
+                          activeColor: AppColors.auroraTeal,
+                          title: Text(
+                            CountryFlags.cleanName(node.name),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            node.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          secondary: checked
+                              ? CircleAvatar(
+                                  radius: 13,
+                                  backgroundColor: AppColors.auroraTeal
+                                      .withValues(alpha: 0.16),
+                                  child: Text(
+                                    '$order',
+                                    style: AppType.mono(
+                                      11,
+                                      color: AppColors.auroraTeal,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                          onChanged: (value) {
+                            if (value == true &&
+                                !checked &&
+                                selected.length >= 20) {
+                              ScaffoldMessenger.of(this.context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Можно выбрать не более 20 серверов',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            setSheetState(() {
+                              value == true
+                                  ? selected.add(node.id)
+                                  : selected.remove(node.id);
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                    child: Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => setSheetState(selected.clear),
+                          child: const Text('Текущий сервер'),
+                        ),
+                        const Spacer(),
+                        FilledButton.icon(
+                          onPressed: () {
+                            ctrl.setTriggerMobileProfiles(app.id, selected);
+                            Navigator.pop(sheetContext);
+                          },
+                          icon: const Icon(Icons.check_rounded),
+                          label: Text('Сохранить · ${selected.length}'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 

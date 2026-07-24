@@ -5,12 +5,14 @@ class TriggerSwitch {
   const TriggerSwitch({
     required this.appId,
     required this.networkType,
-    required this.profileId,
+    required this.profileIds,
   });
 
   final String appId;
   final String networkType;
-  final String profileId;
+  final List<String> profileIds;
+
+  String get profileId => profileIds.isEmpty ? '' : profileIds.first;
 }
 
 /// Stateful decision logic for application-triggered server changes.
@@ -22,7 +24,7 @@ class TriggerAppMonitor {
   Set<String> _previousActive = {};
   String? _sessionApp;
   String? _sessionNetwork;
-  String? _sessionProfile;
+  List<String>? _sessionProfiles;
 
   TriggerSwitch? evaluate({
     required VpnSettings settings,
@@ -49,15 +51,15 @@ class TriggerAppMonitor {
 
     if (newlyActive.isNotEmpty) {
       final appId = newlyActive.last;
-      final profileId = settings.triggerProfileFor(appId, networkType);
+      final profileIds = settings.triggerProfilesFor(appId, networkType);
       _sessionApp = appId;
       _sessionNetwork = networkType;
-      _sessionProfile = profileId;
-      return _needsSwitch(connectionStatus, activeNodeId, profileId)
+      _sessionProfiles = profileIds;
+      return _needsSwitch(connectionStatus, activeNodeId, profileIds)
           ? TriggerSwitch(
               appId: appId,
               networkType: networkType,
-              profileId: profileId,
+              profileIds: profileIds,
             )
           : null;
     }
@@ -66,22 +68,22 @@ class TriggerAppMonitor {
     if (appId == null || !active.contains(appId)) {
       _sessionApp = null;
       _sessionNetwork = null;
-      _sessionProfile = null;
+      _sessionProfiles = null;
       return null;
     }
 
     if (networkType == _sessionNetwork) return null;
 
-    final profileId = settings.triggerProfileFor(appId, networkType);
+    final profileIds = settings.triggerProfilesFor(appId, networkType);
     _sessionNetwork = networkType;
-    if (profileId == _sessionProfile) return null;
+    if (_sameProfiles(profileIds, _sessionProfiles)) return null;
 
-    _sessionProfile = profileId;
-    return _needsSwitch(connectionStatus, activeNodeId, profileId)
+    _sessionProfiles = profileIds;
+    return _needsSwitch(connectionStatus, activeNodeId, profileIds)
         ? TriggerSwitch(
             appId: appId,
             networkType: networkType,
-            profileId: profileId,
+            profileIds: profileIds,
           )
         : null;
   }
@@ -90,16 +92,24 @@ class TriggerAppMonitor {
     _previousActive = {};
     _sessionApp = null;
     _sessionNetwork = null;
-    _sessionProfile = null;
+    _sessionProfiles = null;
   }
 
   static bool _needsSwitch(
     ConnectionStatus connectionStatus,
     String? activeNodeId,
-    String profileId,
+    List<String> profileIds,
   ) {
     if (!connectionStatus.isActive) return true;
-    if (profileId.isEmpty) return false;
-    return activeNodeId != profileId;
+    if (profileIds.isEmpty) return false;
+    return !profileIds.contains(activeNodeId);
+  }
+
+  static bool _sameProfiles(List<String> a, List<String>? b) {
+    if (b == null || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 }

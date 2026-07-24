@@ -64,6 +64,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   bool _wantsConnection = false;
   bool _transitioning = false;
   String? _desiredNodeId;
+  List<String> _desiredCandidateIds = const [];
 
   bool get isRealCore => _engine.isRealCore;
   String get backendLabel => _engine.backendLabel;
@@ -120,9 +121,42 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     return connect();
   }
 
+  /// Connects through an ordered, user-selected failover pool.
+  ///
+  /// Each candidate is verified with a real proxied HTTPS request. Missing
+  /// node ids (for example after a subscription refresh) are skipped.
+  Future<void> connectToIds(Iterable<String> nodeIds) async {
+    final profile = _ref.read(profileProvider);
+    final seen = <String>{};
+    final nodes = <ProxyNode>[];
+    for (final id in nodeIds) {
+      if (id.isEmpty || !seen.add(id)) continue;
+      final node = profile.nodeById(id);
+      if (node != null) nodes.add(node);
+      if (nodes.length == 20) break;
+    }
+    if (nodes.isEmpty) return connect();
+
+    final ids = nodes.map((node) => node.id).toList(growable: false);
+    if (_sameCandidates(ids, _desiredCandidateIds) &&
+        state.status.isActive &&
+        ids.contains(_ref.read(settingsProvider).activeNodeId)) {
+      return;
+    }
+
+    _wantsConnection = true;
+    _desiredNodeId = nodes.first.id;
+    _desiredCandidateIds = ids;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectPolicy.reset();
+    await _connectVerified(nodes.first, candidatesOverride: nodes);
+  }
+
   Future<void> disconnect() {
     _wantsConnection = false;
     _desiredNodeId = null;
+    _desiredCandidateIds = const [];
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectPolicy.reset();
@@ -139,23 +173,34 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     }
     _wantsConnection = true;
     _desiredNodeId = node.id;
+    _desiredCandidateIds = const [];
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectPolicy.reset();
     await _connectVerified(node);
   }
 
-  Future<void> _connectVerified(ProxyNode preferred) async {
+  Future<void> _connectVerified(
+    ProxyNode preferred, {
+    List<ProxyNode>? candidatesOverride,
+  }) async {
     final operation = ++_operation;
     _transitioning = true;
     state = state.copyWith(clearMessage: true);
-    final candidates = _fallbackCandidates(preferred).take(4);
+    final candidates =
+        candidatesOverride ?? _fallbackCandidates(preferred).take(4).toList();
 
     try {
       for (final node in candidates) {
         if (operation != _operation) return;
+        _desiredNodeId = node.id;
         _ref.read(settingsProvider.notifier).setActiveNode(node.id);
-        await _engine.replace(node, _ref.read(settingsProvider));
+        try {
+          await _engine.replace(node, _ref.read(settingsProvider));
+        } catch (_) {
+          if (operation != _operation) return;
+          continue;
+        }
         final started = await _waitForConnected();
         if (operation != _operation) return;
         if (!started) {
@@ -165,7 +210,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
           if (_engine.status == ConnectionStatus.connecting) {
             await _engine.stop();
           }
-          return;
+          continue;
         }
 
         final reachable = await _engine.verifyConnection();
@@ -177,8 +222,9 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
           _reconnectTimer = null;
           if (node.id != preferred.id) {
             state = state.copyWith(
-              message:
-                  'Выбранный сервер не передавал трафик — подключён резервный',
+              message: candidatesOverride == null
+                  ? 'Выбранный сервер не передавал трафик — подключён резервный'
+                  : 'Подключён первый рабочий сервер из мобильного списка',
             );
           }
           return;
@@ -224,6 +270,13 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     _reconnectTimer = Timer(delay, () {
       _reconnectTimer = null;
       if (!_wantsConnection || state.status.isActive) return;
+      final failover = _rotatedDesiredCandidates();
+      if (failover.isNotEmpty) {
+        unawaited(
+          _connectVerified(failover.first, candidatesOverride: failover),
+        );
+        return;
+      }
       final desired = _desiredNodeId;
       final node = desired == null
           ? _resolveNode()
@@ -234,6 +287,33 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
       }
       unawaited(_connectVerified(node));
     });
+  }
+
+  List<ProxyNode> _rotatedDesiredCandidates() {
+    if (_desiredCandidateIds.isEmpty) return const [];
+    final profile = _ref.read(profileProvider);
+    final ids = [..._desiredCandidateIds];
+    final failedIndex = ids.indexOf(_desiredNodeId ?? '');
+    if (failedIndex >= 0 && ids.length > 1) {
+      final after = ids.sublist(failedIndex + 1);
+      final throughFailed = ids.sublist(0, failedIndex + 1);
+      ids
+        ..clear()
+        ..addAll(after)
+        ..addAll(throughFailed);
+    }
+    return ids
+        .map(profile.nodeById)
+        .whereType<ProxyNode>()
+        .toList(growable: false);
+  }
+
+  static bool _sameCandidates(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   Future<bool> _waitForConnected() async {

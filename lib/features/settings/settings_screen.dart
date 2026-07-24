@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
@@ -139,8 +142,10 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     _infoRow('Ядро', conn.backendLabel),
                     const SizedBox(height: 10),
-                    _infoRow('Статус ядра',
-                        conn.isRealCore ? 'Активно' : 'Симуляция'),
+                    _infoRow(
+                      'Статус ядра',
+                      conn.isRealCore ? 'Активно' : 'Симуляция',
+                    ),
                     const SizedBox(height: 10),
                     _infoRow('Версия', 'Aurora $kAppVersion'),
                     const SizedBox(height: 14),
@@ -157,13 +162,30 @@ class SettingsScreen extends ConsumerWidget {
                 padding: EdgeInsets.zero,
                 child: Column(
                   children: [
+                    if (Platform.isAndroid) ...[
+                      _NavRow(
+                        icon: Icons.dashboard_customize_rounded,
+                        title: 'Добавить кнопку VPN в шторку',
+                        onTap: () => _addQuickTile(context),
+                      ),
+                      const Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: AppColors.hairline,
+                        indent: 56,
+                      ),
+                    ],
                     _NavRow(
                       icon: Icons.system_update_rounded,
                       title: 'Проверить обновления',
                       onTap: () => _checkUpdate(context, ref),
                     ),
                     const Divider(
-                        height: 1, thickness: 1, color: AppColors.hairline, indent: 56),
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.hairline,
+                      indent: 56,
+                    ),
                     _NavRow(
                       icon: Icons.article_outlined,
                       title: 'Логи',
@@ -183,34 +205,67 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _checkUpdate(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(const SnackBar(content: Text('Проверяем обновления…')));
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Проверяем обновления…')),
+    );
     final info = await ref.read(updateServiceProvider).check();
     if (!context.mounted) return;
     messenger.hideCurrentSnackBar();
     if (info == null) {
       messenger.showSnackBar(
-          const SnackBar(content: Text('У вас последняя версия')));
+        const SnackBar(content: Text('У вас последняя версия')),
+      );
     } else {
       showUpdateDialog(context, info);
     }
   }
 
-  Widget _tileDivider() =>
-      const Divider(height: 1, thickness: 1, color: AppColors.hairline, indent: 56);
+  Future<void> _addQuickTile(BuildContext context) async {
+    const channel = MethodChannel('aurora/vpn');
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final status =
+          await channel.invokeMethod<String>('addQuickTile') ?? 'error';
+      if (!context.mounted) return;
+      final message = switch (status) {
+        'added' => 'Кнопка Aurora добавлена в шторку',
+        'already_added' => 'Кнопка Aurora уже находится в шторке',
+        'not_added' => 'Добавление кнопки отменено',
+        'manual' =>
+          'Откройте шторку, нажмите «Изменить» и перетащите Aurora VPN',
+        _ => 'Не удалось добавить кнопку Aurora',
+      };
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } on PlatformException {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Не удалось добавить кнопку Aurora')),
+      );
+    }
+  }
+
+  Widget _tileDivider() => const Divider(
+    height: 1,
+    thickness: 1,
+    color: AppColors.hairline,
+    indent: 56,
+  );
 
   Widget _infoRow(String k, String v) => Row(
-        children: [
-          Text(k, style: AppType.ui(13, color: AppColors.mist)),
-          const Spacer(),
-          Flexible(
-            child: Text(v,
-                style: AppType.mono(12, color: AppColors.frost),
-                textAlign: TextAlign.right,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis),
-          ),
-        ],
-      );
+    children: [
+      Text(k, style: AppType.ui(13, color: AppColors.mist)),
+      const Spacer(),
+      Flexible(
+        child: Text(
+          v,
+          style: AppType.mono(12, color: AppColors.frost),
+          textAlign: TextAlign.right,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ],
+  );
 }
 
 class _NavRow extends StatelessWidget {
@@ -230,7 +285,11 @@ class _NavRow extends StatelessWidget {
             Icon(icon, color: AppColors.auroraTeal, size: 20),
             const SizedBox(width: 14),
             Expanded(
-                child: Text(title, style: AppType.ui(14.5, weight: FontWeight.w700))),
+              child: Text(
+                title,
+                style: AppType.ui(14.5, weight: FontWeight.w700),
+              ),
+            ),
             const Icon(Icons.chevron_right_rounded, color: AppColors.mist),
           ],
         ),
@@ -240,7 +299,11 @@ class _NavRow extends StatelessWidget {
 }
 
 class _RoutingCard extends StatelessWidget {
-  const _RoutingCard({required this.mode, required this.selected, required this.onTap});
+  const _RoutingCard({
+    required this.mode,
+    required this.selected,
+    required this.onTap,
+  });
   final RoutingMode mode;
   final bool selected;
   final VoidCallback onTap;
@@ -255,7 +318,9 @@ class _RoutingCard extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+            selected
+                ? Icons.radio_button_checked_rounded
+                : Icons.radio_button_off_rounded,
             color: selected ? AppColors.auroraTeal : AppColors.mistDim,
             size: 22,
           ),
@@ -264,9 +329,15 @@ class _RoutingCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(mode.title, style: AppType.ui(14.5, weight: FontWeight.w700)),
+                Text(
+                  mode.title,
+                  style: AppType.ui(14.5, weight: FontWeight.w700),
+                ),
                 const SizedBox(height: 3),
-                Text(mode.subtitle, style: AppType.ui(12, color: AppColors.mist)),
+                Text(
+                  mode.subtitle,
+                  style: AppType.ui(12, color: AppColors.mist),
+                ),
               ],
             ),
           ),
@@ -329,7 +400,10 @@ class _StackTile extends StatelessWidget {
         children: [
           const Icon(Icons.layers_rounded, color: AppColors.mist, size: 22),
           const SizedBox(width: 14),
-          Text('Сетевой стек', style: AppType.ui(14.5, weight: FontWeight.w600)),
+          Text(
+            'Сетевой стек',
+            style: AppType.ui(14.5, weight: FontWeight.w600),
+          ),
           const Spacer(),
           PopupMenuButton<TunStack>(
             color: AppColors.slate,
@@ -349,12 +423,20 @@ class _StackTile extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(stack.label,
-                      style: AppType.mono(12,
-                          weight: FontWeight.w700, color: AppColors.auroraTeal)),
+                  Text(
+                    stack.label,
+                    style: AppType.mono(
+                      12,
+                      weight: FontWeight.w700,
+                      color: AppColors.auroraTeal,
+                    ),
+                  ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.arrow_drop_down_rounded,
-                      color: AppColors.mist, size: 20),
+                  const Icon(
+                    Icons.arrow_drop_down_rounded,
+                    color: AppColors.mist,
+                    size: 20,
+                  ),
                 ],
               ),
             ),
@@ -421,9 +503,12 @@ class _EditTile extends StatelessWidget {
                 children: [
                   Text(title, style: AppType.ui(14.5, weight: FontWeight.w600)),
                   const SizedBox(height: 2),
-                  Text(value,
-                      style: AppType.mono(11.5, color: AppColors.mist),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    value,
+                    style: AppType.mono(11.5, color: AppColors.mist),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
             ),

@@ -46,21 +46,21 @@ class ProfileState {
     bool? busy,
     String? error,
     bool clearError = false,
-  }) =>
-      ProfileState(
-        subscriptions: subscriptions ?? this.subscriptions,
-        nodes: nodes ?? this.nodes,
-        busy: busy ?? this.busy,
-        error: clearError ? null : (error ?? this.error),
-      );
+  }) => ProfileState(
+    subscriptions: subscriptions ?? this.subscriptions,
+    nodes: nodes ?? this.nodes,
+    busy: busy ?? this.busy,
+    error: clearError ? null : (error ?? this.error),
+  );
 }
 
 /// Manages subscriptions and nodes: import, refresh, remove, ping.
 class ProfileController extends StateNotifier<ProfileState> {
   ProfileController(this._storage, this._parser, this._latency)
-      : super(const ProfileState()) {
+    : super(const ProfileState()) {
     _restore();
     _startAutoPing();
+    _startAutoRefresh();
   }
 
   final Storage _storage;
@@ -68,6 +68,9 @@ class ProfileController extends StateNotifier<ProfileState> {
   final LatencyService _latency;
   final _rng = Random();
   Timer? _autoPing;
+  Timer? _autoRefresh;
+  bool _refreshingSubscriptions = false;
+  final _fetchingSubscriptionIds = <String>{};
 
   /// Keeps latency fresh in real time: an initial sweep shortly after launch,
   /// then a full re-ping every 7 minutes.
@@ -80,9 +83,21 @@ class ProfileController extends StateNotifier<ProfileState> {
     });
   }
 
+  /// Refresh shortly after launch and every five minutes while the app lives.
+  /// A freshness guard prevents duplicate downloads on rapid resume events.
+  void _startAutoRefresh() {
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) refreshIfStale(maxAge: const Duration(minutes: 2));
+    });
+    _autoRefresh = Timer.periodic(const Duration(minutes: 5), (_) {
+      refreshIfStale(maxAge: const Duration(minutes: 4));
+    });
+  }
+
   @override
   void dispose() {
     _autoPing?.cancel();
+    _autoRefresh?.cancel();
     super.dispose();
   }
 
@@ -91,15 +106,22 @@ class ProfileController extends StateNotifier<ProfileState> {
         .readList(Storage.kSubscriptions)
         .map(Subscription.fromJson)
         .toList();
-    final nodes =
-        _storage.readList(Storage.kNodes).map(ProxyNode.fromJson).toList();
+    final nodes = _storage
+        .readList(Storage.kNodes)
+        .map(ProxyNode.fromJson)
+        .toList();
     state = state.copyWith(subscriptions: subs, nodes: nodes);
   }
 
   void _persist() {
     _storage.writeJson(
-        Storage.kSubscriptions, state.subscriptions.map((s) => s.toJson()).toList());
-    _storage.writeJson(Storage.kNodes, state.nodes.map((n) => n.toJson()).toList());
+      Storage.kSubscriptions,
+      state.subscriptions.map((s) => s.toJson()).toList(),
+    );
+    _storage.writeJson(
+      Storage.kNodes,
+      state.nodes.map((n) => n.toJson()).toList(),
+    );
   }
 
   String _genId() =>
@@ -110,8 +132,8 @@ class ProfileController extends StateNotifier<ProfileState> {
   /// Decides whether pasted text is a subscription URL or inline node links.
   Future<void> import(String text, {String? name}) async {
     final trimmed = text.trim();
-    final isHttpSub = (trimmed.startsWith('http://') ||
-            trimmed.startsWith('https://')) &&
+    final isHttpSub =
+        (trimmed.startsWith('http://') || trimmed.startsWith('https://')) &&
         !trimmed.contains('\n');
     if (isHttpSub) {
       await addSubscription(name ?? '', trimmed);
@@ -143,17 +165,54 @@ class ProfileController extends StateNotifier<ProfileState> {
   }
 
   Future<void> refreshAll() async {
-    for (final sub in state.subscriptions.where((s) => s.autoUpdate)) {
-      await _fetch(sub);
+    await _refreshSubscriptions(
+      state.subscriptions.where((sub) => sub.autoUpdate),
+    );
+  }
+
+  Future<void> refreshIfStale({
+    Duration maxAge = const Duration(minutes: 2),
+  }) async {
+    await _refreshSubscriptions(
+      state.subscriptions.where(
+        (sub) => sub.autoUpdate && sub.isStale(maxAge: maxAge),
+      ),
+    );
+  }
+
+  Future<void> _refreshSubscriptions(
+    Iterable<Subscription> subscriptions,
+  ) async {
+    if (_refreshingSubscriptions) return;
+    final pending = subscriptions.toList();
+    if (pending.isEmpty) return;
+    _refreshingSubscriptions = true;
+    try {
+      for (final sub in pending) {
+        if (!mounted) return;
+        await _fetch(sub);
+      }
+    } finally {
+      _refreshingSubscriptions = false;
     }
   }
 
   Future<void> _fetch(Subscription sub) async {
+    if (!_fetchingSubscriptionIds.add(sub.id)) {
+      state = state.copyWith(busy: false);
+      return;
+    }
     try {
-      final resp = await http.get(
-        Uri.parse(sub.url),
-        headers: {'User-Agent': 'Aurora/1.0 (sing-box)'},
-      ).timeout(const Duration(seconds: 20));
+      final resp = await http
+          .get(
+            Uri.parse(sub.url),
+            headers: {
+              'User-Agent': 'Aurora/1.1 (sing-box)',
+              'Cache-Control': 'no-cache, no-store',
+              'Pragma': 'no-cache',
+            },
+          )
+          .timeout(const Duration(seconds: 20));
 
       if (resp.statusCode != 200) {
         _finishWithError('Сервер вернул ${resp.statusCode}');
@@ -172,8 +231,9 @@ class ProfileController extends StateNotifier<ProfileState> {
         expireUnix: info?.$4,
       );
 
-      final otherNodes =
-          state.nodes.where((n) => n.subscriptionId != sub.id).toList();
+      final otherNodes = state.nodes
+          .where((n) => n.subscriptionId != sub.id)
+          .toList();
       final subs = [
         for (final s in state.subscriptions) s.id == sub.id ? updated : s,
       ];
@@ -185,6 +245,8 @@ class ProfileController extends StateNotifier<ProfileState> {
       _persist();
     } catch (e) {
       _finishWithError('Не удалось загрузить подписку');
+    } finally {
+      _fetchingSubscriptionIds.remove(sub.id);
     }
   }
 
@@ -199,7 +261,10 @@ class ProfileController extends StateNotifier<ProfileState> {
       state = state.copyWith(error: 'Не найдено ни одного узла');
       return;
     }
-    state = state.copyWith(nodes: [...state.nodes, ...parsed], clearError: true);
+    state = state.copyWith(
+      nodes: [...state.nodes, ...parsed],
+      clearError: true,
+    );
     _persist();
   }
 
@@ -214,8 +279,9 @@ class ProfileController extends StateNotifier<ProfileState> {
   }
 
   void removeNode(String nodeId) {
-    state =
-        state.copyWith(nodes: state.nodes.where((n) => n.id != nodeId).toList());
+    state = state.copyWith(
+      nodes: state.nodes.where((n) => n.id != nodeId).toList(),
+    );
     _persist();
   }
 
@@ -239,9 +305,11 @@ class ProfileController extends StateNotifier<ProfileState> {
     const batch = 12;
     for (var i = 0; i < nodes.length; i += batch) {
       final slice = nodes.skip(i).take(batch);
-      await Future.wait(slice.map((n) async {
-        results[n.id] = await _latency.ping(n.server, n.port);
-      }));
+      await Future.wait(
+        slice.map((n) async {
+          results[n.id] = await _latency.ping(n.server, n.port);
+        }),
+      );
       _applyLatency(results);
     }
   }
@@ -263,9 +331,8 @@ class ProfileController extends StateNotifier<ProfileState> {
 
   /// The reachable node with the lowest latency, if any were tested.
   ProxyNode? fastestNode() {
-    final tested =
-        state.nodes.where((n) => (n.latencyMs ?? -1) >= 0).toList()
-          ..sort((a, b) => a.latencyMs!.compareTo(b.latencyMs!));
+    final tested = state.nodes.where((n) => (n.latencyMs ?? -1) >= 0).toList()
+      ..sort((a, b) => a.latencyMs!.compareTo(b.latencyMs!));
     return tested.isEmpty ? null : tested.first;
   }
 
@@ -291,8 +358,9 @@ class ProfileController extends StateNotifier<ProfileState> {
   }
 }
 
-final profileProvider =
-    StateNotifierProvider<ProfileController, ProfileState>((ref) {
+final profileProvider = StateNotifierProvider<ProfileController, ProfileState>((
+  ref,
+) {
   return ProfileController(
     ref.watch(storageProvider),
     ref.watch(subscriptionParserProvider),

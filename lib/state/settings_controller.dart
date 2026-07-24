@@ -72,12 +72,20 @@ class SettingsController extends StateNotifier<VpnSettings> {
     _commit(state.copyWith(triggerWifiProfiles: map));
   }
 
-  /// Sets which server a trigger app uses on mobile internet.
-  void setTriggerMobileProfile(String id, String nodeId) {
+  /// Sets the ordered mobile failover pool (up to 20 servers).
+  void setTriggerMobileProfiles(String id, Iterable<String> nodeIds) {
     final map = {...state.triggerMobileProfiles};
-    map[id] = nodeId;
+    map[id] = nodeIds
+        .where((nodeId) => nodeId.isNotEmpty)
+        .toSet()
+        .take(20)
+        .toList();
     _commit(state.copyWith(triggerMobileProfiles: map));
   }
+
+  /// Backward-compatible single-selection entry point.
+  void setTriggerMobileProfile(String id, String nodeId) =>
+      setTriggerMobileProfiles(id, nodeId.isEmpty ? const [] : [nodeId]);
 
   void clearTriggerApps() => _commit(
     state.copyWith(

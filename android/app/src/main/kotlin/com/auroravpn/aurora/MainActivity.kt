@@ -1,8 +1,10 @@
 package com.auroravpn.aurora
 
 import android.app.AppOpsManager
+import android.app.StatusBarManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -15,6 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.graphics.drawable.Icon
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -61,6 +64,7 @@ class MainActivity : FlutterActivity() {
             prev?.uncaughtException(thread, e)
         }
         super.onCreate(savedInstanceState)
+        handleTileIntent(intent)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -76,6 +80,7 @@ class MainActivity : FlutterActivity() {
                 }, "aurora-probe").start()
                 "start" -> {
                     pendingConfig = call.argument<String>("config")
+                    pendingConfig?.let { AuroraTileState.saveConfig(this, it) }
                     val prepare = VpnService.prepare(this)
                     if (prepare != null) {
                         startActivityForResult(prepare, VPN_REQUEST)
@@ -90,6 +95,7 @@ class MainActivity : FlutterActivity() {
                     startService(intent)
                     result.success(null)
                 }
+                "addQuickTile" -> requestQuickTile(result)
                 else -> result.notImplemented()
             }
         }
@@ -345,10 +351,60 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun launchTunnel() {
+        if (pendingConfig.isNullOrBlank()) {
+            pendingConfig = AuroraTileState.lastConfig(this)
+        }
+        val config = pendingConfig ?: return
+        AuroraTileState.saveConfig(this, config)
         val intent = Intent(this, AuroraVpnService::class.java)
         intent.action = AuroraVpnService.ACTION_START
-        intent.putExtra(AuroraVpnService.EXTRA_CONFIG, pendingConfig)
+        intent.putExtra(AuroraVpnService.EXTRA_CONFIG, config)
         startService(intent)
+    }
+
+    private fun handleTileIntent(intent: Intent?) {
+        if (intent?.action != AuroraTileService.ACTION_TILE_CONNECT) return
+        pendingConfig = AuroraTileState.lastConfig(this) ?: return
+        val prepare = VpnService.prepare(this)
+        if (prepare != null) {
+            startActivityForResult(prepare, VPN_REQUEST)
+        } else {
+            launchTunnel()
+        }
+        intent.action = null
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleTileIntent(intent)
+    }
+
+    private fun requestQuickTile(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            result.success("manual")
+            return
+        }
+        try {
+            val manager = getSystemService(StatusBarManager::class.java)
+            manager.requestAddTileService(
+                ComponentName(this, AuroraTileService::class.java),
+                "Aurora VPN",
+                Icon.createWithResource(this, R.drawable.ic_qs_aurora),
+                mainExecutor
+            ) { code ->
+                val value = when (code) {
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED -> "added"
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED ->
+                        "already_added"
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED -> "not_added"
+                    else -> "error"
+                }
+                result.success(value)
+            }
+        } catch (t: Throwable) {
+            result.error("quick_tile", t.message, null)
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

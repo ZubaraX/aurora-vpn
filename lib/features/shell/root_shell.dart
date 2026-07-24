@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../state/connection_controller.dart';
+import '../../state/profile_controller.dart';
 import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
 import '../apps/apps_screen.dart';
@@ -23,7 +24,8 @@ class RootShell extends ConsumerStatefulWidget {
   ConsumerState<RootShell> createState() => _RootShellState();
 }
 
-class _RootShellState extends ConsumerState<RootShell> {
+class _RootShellState extends ConsumerState<RootShell>
+    with WidgetsBindingObserver {
   static const _screens = [
     HomeScreen(),
     ServersScreen(),
@@ -53,6 +55,7 @@ class _RootShellState extends ConsumerState<RootShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeAutoConnect();
       _checkTriggerApps();
@@ -74,8 +77,18 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _triggerTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    ref
+        .read(profileProvider.notifier)
+        .refreshIfStale(maxAge: const Duration(minutes: 2));
+    _checkTriggerApps();
   }
 
   void _maybeAutoConnect() {
@@ -117,7 +130,7 @@ class _RootShellState extends ConsumerState<RootShell> {
       if (action != null) {
         await ref
             .read(connectionProvider.notifier)
-            .connectToId(action.profileId);
+            .connectToIds(action.profileIds);
       }
     } finally {
       _checkingTriggers = false;
