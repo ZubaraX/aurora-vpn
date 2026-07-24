@@ -1,6 +1,6 @@
 /// App-wide constants. [kAppVersion] must match the release tag (vX.Y.Z) so the
 /// self-updater can tell when a newer build is published.
-const String kAppVersion = '1.0.4';
+const String kAppVersion = '1.0.5';
 const String kGithubOwner = 'ZubaraX';
 const String kGithubRepo = 'aurora-vpn';
 

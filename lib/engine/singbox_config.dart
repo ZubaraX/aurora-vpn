@@ -200,7 +200,10 @@ class SingBoxConfigBuilder {
           'type': 'remote',
           'tag': tag,
           'format': 'binary',
-          'url': '$_geoBase/$repo/raw/rule-set/$file.srs',
+          // `rule-set` is the branch name. raw.githubusercontent.com URLs
+          // address it directly; inserting an extra `/raw/` returns 404 and
+          // prevents the core from starting.
+          'url': '$_geoBase/$repo/rule-set/$file.srs',
           'download_detour': 'direct',
         });
     if (s.blockAds) {

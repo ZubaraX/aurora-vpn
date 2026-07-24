@@ -82,6 +82,23 @@ void main() {
       // system stays tunnelled and split tunnelling does nothing.
       expect(route['final'], 'direct');
     });
+
+    test('uses valid raw GitHub URLs for remote rule-sets', () {
+      final node =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final cfg = const SingBoxConfigBuilder(isAndroid: true)
+          .build(node, const VpnSettings());
+      final route = cfg['route'] as Map;
+      final ruleSets = route['rule_set'] as List;
+      final urls = ruleSets.map((rule) => (rule as Map)['url'] as String);
+      expect(
+        urls,
+        everyElement(matches(
+          r'^https://raw\.githubusercontent\.com/SagerNet/'
+          r'[^/]+/rule-set/[^/]+\.srs$',
+        )),
+      );
+    });
   });
 }
 

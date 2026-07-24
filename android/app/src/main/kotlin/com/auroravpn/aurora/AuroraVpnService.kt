@@ -9,6 +9,7 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -210,28 +211,53 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun getInterfaces(): LibboxNetworkInterfaceIterator {
         val items = ArrayList<LibboxNetworkInterface>()
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         try {
-            for (ni in java.net.NetworkInterface.getNetworkInterfaces()) {
-                if (!ni.isUp) continue
+            // libbox needs Android's usable networks, not every kernel
+            // interface (loopback, stale TUNs, etc.). In particular, the
+            // transport type and DNS servers are used while the core resolves
+            // remote rule-sets before the VPN itself exists.
+            for (network in cm.allNetworks) {
+                val lp = cm.getLinkProperties(network) ?: continue
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                val name = lp.interfaceName ?: continue
+                val ni = java.net.NetworkInterface.getByName(name) ?: continue
                 val item = LibboxNetworkInterface()
-                item.name = ni.name
+                item.name = name
                 item.index = ni.index
                 item.mtu = try { ni.mtu } catch (_: Throwable) { 0 }
                 val addrs = ArrayList<String>()
                 for (ia in ni.interfaceAddresses) {
                     val host = ia.address?.hostAddress ?: continue
-                    addrs.add("$host/${ia.networkPrefixLength}")
+                    // Java appends an IPv6 scope (for example "%wlan0") to
+                    // link-local addresses. netip.ParsePrefix in libbox rejects
+                    // zones and panics across the gomobile boundary, killing the
+                    // whole app. The interface index is already supplied
+                    // separately, so strip the textual scope from the prefix.
+                    addrs.add("${host.substringBefore('%')}/${ia.networkPrefixLength}")
                 }
                 item.addresses = StringList(addrs)
                 var flags = 0
-                if (ni.isUp) flags = flags or 0x1 or 0x40
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    flags = flags or 0x1 or 0x40 // IFF_UP | IFF_RUNNING
+                }
                 if (ni.isLoopback) flags = flags or 0x8
                 if (ni.isPointToPoint) flags = flags or 0x10
                 if (ni.supportsMulticast()) flags = flags or 0x1000
                 item.flags = flags
-                item.type = Libbox.InterfaceTypeOther
-                item.dnsServer = StringList(emptyList())
-                item.metered = false
+                item.type = when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ->
+                        Libbox.InterfaceTypeWIFI
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
+                        Libbox.InterfaceTypeCellular
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ->
+                        Libbox.InterfaceTypeEthernet
+                    else -> Libbox.InterfaceTypeOther
+                }
+                item.dnsServer =
+                    StringList(lp.dnsServers.mapNotNull { it.hostAddress })
+                item.metered =
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
                 items.add(item)
             }
         } catch (_: Throwable) {}
@@ -248,6 +274,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 listener.updateDefaultInterface("", -1, false, false)
         }
         networkCallback = cb
+        // registerDefaultNetworkCallback is asynchronous. libbox can start
+        // resolving remote rule-sets immediately, so seed the monitor with the
+        // current network before returning to the Go core.
+        cm.activeNetwork?.let { notify(cm, it, listener) }
         cm.registerDefaultNetworkCallback(cb)
     }
 
