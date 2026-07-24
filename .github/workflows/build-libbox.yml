@@ -14,9 +14,13 @@ on:
 jobs:
   libbox:
     runs-on: ubuntu-latest
+    # Pass the (untrusted) dispatch input through the environment instead of
+    # interpolating it straight into shell commands — avoids script injection.
+    env:
+      SINGBOX_REF: ${{ github.event.inputs.singbox_ref || 'v1.13.14' }}
     steps:
       - name: Clone sing-box
-        run: git clone --depth 1 -b "${{ github.event.inputs.singbox_ref }}" https://github.com/SagerNet/sing-box.git
+        run: git clone --depth 1 -b "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git
 
       - name: Detect Go version
         id: go
@@ -52,7 +56,7 @@ jobs:
             -target=android/arm64 \
             -androidapi 24 \
             -tags "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0" \
-            -ldflags "-X github.com/sagernet/sing-box/constant.Version=${{ github.event.inputs.singbox_ref }} -checklinkname=0 -s -w" \
+            -ldflags "-X github.com/sagernet/sing-box/constant.Version=$SINGBOX_REF -checklinkname=0 -s -w" \
             -o libbox.aar \
             ./experimental/libbox
           ls -la libbox.aar

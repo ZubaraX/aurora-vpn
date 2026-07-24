@@ -32,6 +32,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // The bundled sing-box core (libbox.aar) is arm64 only.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     signingConfigs {
@@ -64,4 +66,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // sing-box Android core, built by .github/workflows/build-libbox.yml
+    implementation(files("libs/libbox.aar"))
 }

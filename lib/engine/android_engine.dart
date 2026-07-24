@@ -60,9 +60,7 @@ class AndroidVpnEngine implements VpnEngine {
   String get backendLabel => 'sing-box libbox · Android VpnService';
 
   @override
-  String? get lastError =>
-      'Ядро для Android (sing-box libbox) пока не встроено — туннель недоступен. '
-      'Пользуйтесь Windows-версией; поддержка Android в разработке.';
+  String? get lastError => null;
 
   /// Probes whether the native side is wired up.
   static Future<bool> available() async {
