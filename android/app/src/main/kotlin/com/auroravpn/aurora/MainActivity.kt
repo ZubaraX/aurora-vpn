@@ -5,6 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
+import android.os.Bundle
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -31,6 +32,23 @@ class MainActivity : FlutterActivity() {
     private val VPN_REQUEST = 0x0A11
 
     private var pendingConfig: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Record any uncaught crash to a readable file so failures on-device can
+        // be diagnosed without adb: Android/data/<pkg>/files/aurora-crash.log
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, e ->
+            try {
+                val dir = getExternalFilesDir(null) ?: filesDir
+                java.io.File(dir, "aurora-crash.log").appendText(
+                    "[uncaught ${thread.name}] ${e.javaClass.name}: ${e.message}\n" +
+                        e.stackTraceToString() + "\n\n"
+                )
+            } catch (_: Throwable) {}
+            prev?.uncaughtException(thread, e)
+        }
+        super.onCreate(savedInstanceState)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

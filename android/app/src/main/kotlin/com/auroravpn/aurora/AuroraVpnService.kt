@@ -74,28 +74,43 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             emitStatus("error"); stopSelf(); return
         }
         emitStatus("connecting")
+        // Foreground promotion must happen promptly and on the main thread.
+        try { startForegroundNotification() } catch (t: Throwable) { logError("fg", t) }
+
+        // The core is heavy (parses config, raises the TUN via openTun) — never
+        // run it on the main thread or the app ANRs / is killed on connect.
+        Thread({
+            try {
+                val work = File(filesDir, "work").apply { mkdirs() }
+                Libbox.setup(SetupOptions().apply {
+                    basePath = filesDir.absolutePath
+                    workingPath = work.absolutePath
+                    tempPath = cacheDir.absolutePath
+                })
+                val server = CommandServer(this, this)
+                server.start()
+                server.startOrReloadService(config, null)
+                commandServer = server
+                connectedSince = System.currentTimeMillis()
+                emitStatus("connected")
+                main.post { startStatsPump() }
+            } catch (t: Throwable) {
+                logError("start", t)
+                emitStatus("error")
+                main.post { stopBox() }
+            }
+        }, "aurora-box").start()
+    }
+
+    private fun logError(where: String, t: Throwable) {
         try {
-            val work = File(filesDir, "work").apply { mkdirs() }
-            Libbox.setup(SetupOptions().apply {
-                basePath = filesDir.absolutePath
-                workingPath = work.absolutePath
-                tempPath = cacheDir.absolutePath
-            })
-            startForegroundNotification()
-
-            val server = CommandServer(this, this)
-            server.start()
-            server.startOrReloadService(config, null)
-            commandServer = server
-
-            connectedSince = System.currentTimeMillis()
-            emitStatus("connected")
-            startStatsPump()
-        } catch (t: Throwable) {
-            commandServer?.setError(t.message ?: "start failed")
-            emitStatus("error")
-            stopBox()
-        }
+            android.util.Log.e("AuroraVPN", "[$where] ${t.message}", t)
+            val dir = getExternalFilesDir(null) ?: filesDir
+            File(dir, "aurora-crash.log").appendText(
+                "[$where] ${t.javaClass.simpleName}: ${t.message}\n" +
+                    t.stackTraceToString() + "\n\n"
+            )
+        } catch (_: Throwable) {}
     }
 
     private fun stopBox() {
@@ -126,7 +141,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun openTun(options: TunOptions): Int {
         val builder = Builder()
-        builder.setMtu(options.mtu)
+        builder.setMtu(if (options.mtu in 1..9000) options.mtu else 1500)
         builder.setSession("Aurora")
         builder.setBlocking(false)
 
