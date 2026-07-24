@@ -92,8 +92,9 @@ class WindowsProcessEngine implements VpnEngine {
     try {
       await _killOwnCore();
 
-      final config = const SingBoxConfigBuilder(isAndroid: false)
-          .buildString(node, settings);
+      final config = const SingBoxConfigBuilder(
+        isAndroid: false,
+      ).buildString(node, settings);
       final file = File('${AppPaths.dataDir().path}\\aurora-config.json');
       await file.writeAsString(config);
 
@@ -101,14 +102,16 @@ class WindowsProcessEngine implements VpnEngine {
       _process = await Process.start(_corePath, ['run', '-c', file.path]);
       _process!.stderr.transform(utf8.decoder).listen(_capture);
       _process!.stdout.transform(utf8.decoder).listen(_capture);
-      unawaited(_process!.exitCode.then((_) {
-        exited = true;
-        if (_status.isActive) {
-          _lastError ??= _diagnose();
-          _emit(ConnectionStatus.error);
-        }
-        _cleanup();
-      }));
+      unawaited(
+        _process!.exitCode.then((_) {
+          exited = true;
+          if (_status.isActive) {
+            _lastError ??= _diagnose();
+            _emit(ConnectionStatus.error);
+          }
+          _cleanup();
+        }),
+      );
 
       // Poll for readiness rather than guessing with a fixed delay.
       final ready = await _waitReady(() => exited);
@@ -166,7 +169,9 @@ class WindowsProcessEngine implements VpnEngine {
     if (log.contains('permission') || log.contains('access is denied')) {
       return 'Нужны права администратора — запустите Aurora от имени администратора.';
     }
-    if (log.contains('wintun') || log.contains('create tun') || log.contains('adapter')) {
+    if (log.contains('wintun') ||
+        log.contains('create tun') ||
+        log.contains('adapter')) {
       return 'Не удалось создать TUN-адаптер. Скорее всего активен другой VPN — закройте NekoBox/Happ/WireGuard и повторите.';
     }
     if (log.contains('bind') || log.contains('address already in use')) {
@@ -246,6 +251,9 @@ class WindowsProcessEngine implements VpnEngine {
     _statsCtrl.add(_stats);
     _emit(ConnectionStatus.disconnected);
   }
+
+  @override
+  Future<bool> verifyConnection() async => true;
 
   void _cleanup() {
     _poller?.cancel();

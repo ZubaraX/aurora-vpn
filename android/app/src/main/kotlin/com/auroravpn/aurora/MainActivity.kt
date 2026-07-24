@@ -1,17 +1,29 @@
 package com.auroravpn.aurora
 
+import android.app.ActivityManager
+import android.app.AppOpsManager
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
+import android.os.Process
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
 
 /**
  * Hosts the Aurora method/event channels the Dart [AndroidVpnEngine] talks to:
@@ -57,6 +69,10 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, VPN_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "ping" -> result.success(true)
+                "probe" -> Thread({
+                    val reachable = probeProxy()
+                    runOnUiThread { result.success(reachable) }
+                }, "aurora-probe").start()
                 "start" -> {
                     pendingConfig = call.argument<String>("config")
                     val prepare = VpnService.prepare(this)
@@ -99,6 +115,12 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "list" -> result.success(listInstalledApps())
                 "running" -> result.success(runningPackages())
+                "networkType" -> result.success(activeNetworkType())
+                "hasTriggerAccess" -> result.success(hasUsageAccess())
+                "requestTriggerAccess" -> {
+                    requestUsageAccess()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -143,6 +165,36 @@ class MainActivity : FlutterActivity() {
         return if (out.isEmpty()) "Логи пока пусты. Нажмите подключение, чтобы записать." else out.toString()
     }
 
+    /**
+     * Tests the selected outbound through sing-box's local Clash API. A TCP
+     * ping to the server is not enough: expired Reality credentials still
+     * accept TCP while every proxied request fails.
+     */
+    private fun probeProxy(): Boolean {
+        val path = "/proxies/proxy/delay" +
+            "?timeout=8000" +
+            "&url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204"
+        repeat(3) {
+            try {
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress("127.0.0.1", 9090), 2000)
+                    socket.soTimeout = 10000
+                    val writer = socket.getOutputStream().bufferedWriter()
+                    writer.write("GET $path HTTP/1.1\r\n")
+                    writer.write("Host: 127.0.0.1:9090\r\n")
+                    writer.write("Connection: close\r\n\r\n")
+                    writer.flush()
+                    val status = socket.getInputStream().bufferedReader().readLine()
+                    if (status?.contains(" 200 ") == true) return true
+                }
+            } catch (_: Throwable) {}
+            try { Thread.sleep(600) } catch (_: InterruptedException) {
+                return false
+            }
+        }
+        return false
+    }
+
     private fun installApk(path: String?) {
         if (path == null) return
         val file = java.io.File(path)
@@ -159,12 +211,95 @@ class MainActivity : FlutterActivity() {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    /** Package names of currently running / launchable apps (best effort). */
+    /** Package names that entered or remain in the foreground recently. */
     private fun runningPackages(): List<String> {
-        val pm = packageManager
-        return pm.getInstalledApplications(0)
-            .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
-            .map { it.packageName }
+        if (hasUsageAccess()) {
+            val usage = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val now = System.currentTimeMillis()
+            val events = usage.queryEvents(now - 30_000, now)
+            val event = UsageEvents.Event()
+            val foreground = LinkedHashMap<String, Boolean>()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                val packageName = event.packageName ?: continue
+                when (event.eventType) {
+                    UsageEvents.Event.ACTIVITY_RESUMED -> foreground[packageName] = true
+                    UsageEvents.Event.ACTIVITY_PAUSED,
+                    UsageEvents.Event.ACTIVITY_STOPPED -> foreground[packageName] = false
+                }
+            }
+            return foreground.filterValues { it }.keys.toList()
+        }
+
+        // Limited fallback for devices where Usage Access has not been
+        // granted. Unlike the old installed-app list, this cannot fire every
+        // trigger immediately after Aurora starts.
+        val activity = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        return activity.runningAppProcesses.orEmpty()
+            .filter {
+                it.importance <=
+                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE
+            }
+            .flatMap { it.pkgList?.toList().orEmpty() }
+            .distinct()
+    }
+
+    private fun hasUsageAccess(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                packageName
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                packageName
+            )
+        }
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
+
+    private fun requestUsageAccess() {
+        val intent = Intent(
+            Settings.ACTION_USAGE_ACCESS_SETTINGS,
+            Uri.parse("package:$packageName")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(intent)
+        } catch (_: Throwable) {
+            startActivity(
+                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
+
+    /** Physical upstream type; the VPN transport itself is deliberately ignored. */
+    private fun activeNetworkType(): String {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val active = cm.activeNetwork
+        val network = if (active != null &&
+            cm.getNetworkCapabilities(active)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false
+        ) {
+            active
+        } else {
+            cm.allNetworks.firstOrNull { candidate ->
+                val caps = cm.getNetworkCapabilities(candidate) ?: return@firstOrNull false
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+        } ?: return "other"
+        val caps = cm.getNetworkCapabilities(network) ?: return "other"
+        return when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+            else -> "other"
+        }
     }
 
     private fun launchTunnel() {

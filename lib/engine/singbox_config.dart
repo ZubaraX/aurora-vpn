@@ -17,7 +17,10 @@ class SingBoxConfigBuilder {
 
   Map<String, dynamic> build(ProxyNode node, VpnSettings s) {
     return {
-      'log': {'level': 'warn', 'timestamp': true},
+      // Keep enough core diagnostics to explain a tunnel that is established
+      // but cannot pass traffic. Logs remain app-private and can be cleared
+      // from the diagnostics screen.
+      'log': {'level': 'info', 'timestamp': true},
       'dns': _dns(s),
       'inbounds': [_tunInbound(s)],
       'outbounds': [
@@ -65,7 +68,9 @@ class SingBoxConfigBuilder {
   /// recursive-resolution dependency for the server itself.
   Map<String, dynamic> _dnsServer(String tag, String url, String? detour) {
     final u = url.trim();
-    final scheme = RegExp(r'^([a-zA-Z0-9]+)://').firstMatch(u)?.group(1)?.toLowerCase();
+    final scheme = RegExp(
+      r'^([a-zA-Z0-9]+)://',
+    ).firstMatch(u)?.group(1)?.toLowerCase();
     if (scheme != null) {
       final uri = Uri.tryParse(u);
       final host = (uri?.host.isNotEmpty ?? false) ? uri!.host : u;
@@ -112,9 +117,12 @@ class SingBoxConfigBuilder {
     };
 
     // Android exposes per-app routing directly on the TUN inbound.
-    if (isAndroid && s.perAppMode != PerAppMode.off && s.perAppSelected.isNotEmpty) {
-      final key =
-          s.perAppMode == PerAppMode.allowlist ? 'include_package' : 'exclude_package';
+    if (isAndroid &&
+        s.perAppMode != PerAppMode.off &&
+        s.perAppSelected.isNotEmpty) {
+      final key = s.perAppMode == PerAppMode.allowlist
+          ? 'include_package'
+          : 'exclude_package';
       tun[key] = s.perAppSelected.toList();
     }
     return tun;
@@ -132,11 +140,16 @@ class SingBoxConfigBuilder {
     // reachable before the tunnel exists and never loops back into the TUN.
     final bootstrapHost = _dnsHost(s.dnsDirect);
     if (bootstrapHost != null && _isIpv4(bootstrapHost)) {
-      rules.add({'ip_cidr': ['$bootstrapHost/32'], 'outbound': 'direct'});
+      rules.add({
+        'ip_cidr': ['$bootstrapHost/32'],
+        'outbound': 'direct',
+      });
     }
 
     // Windows per-app split tunnelling via process_name.
-    if (!isAndroid && s.perAppMode != PerAppMode.off && s.perAppSelected.isNotEmpty) {
+    if (!isAndroid &&
+        s.perAppMode != PerAppMode.off &&
+        s.perAppSelected.isNotEmpty) {
       final procs = s.perAppSelected.map(_exeName).toList();
       if (s.perAppMode == PerAppMode.allowlist) {
         // Only selected processes are tunnelled; everything else goes direct.
@@ -166,7 +179,8 @@ class SingBoxConfigBuilder {
     // process_name rule already sends chosen apps to the proxy, so everything
     // else must default to direct — otherwise the whole system stays tunnelled
     // and split tunnelling does nothing.
-    final winAllowlist = !isAndroid &&
+    final winAllowlist =
+        !isAndroid &&
         s.perAppMode == PerAppMode.allowlist &&
         s.perAppSelected.isNotEmpty;
     final String finalOutbound;
@@ -197,15 +211,15 @@ class SingBoxConfigBuilder {
     // Downloaded via the direct outbound so a rule-set fetch never depends on
     // the tunnel it is meant to configure (that deadlocks on first connect).
     void add(String tag, String repo, String file) => sets.add({
-          'type': 'remote',
-          'tag': tag,
-          'format': 'binary',
-          // `rule-set` is the branch name. raw.githubusercontent.com URLs
-          // address it directly; inserting an extra `/raw/` returns 404 and
-          // prevents the core from starting.
-          'url': '$_geoBase/$repo/rule-set/$file.srs',
-          'download_detour': 'direct',
-        });
+      'type': 'remote',
+      'tag': tag,
+      'format': 'binary',
+      // `rule-set` is the branch name. raw.githubusercontent.com URLs
+      // address it directly; inserting an extra `/raw/` returns 404 and
+      // prevents the core from starting.
+      'url': '$_geoBase/$repo/rule-set/$file.srs',
+      'download_detour': 'direct',
+    });
     if (s.blockAds) {
       add('geosite-ads', 'sing-geosite', 'geosite-category-ads-all');
     }
@@ -219,7 +233,9 @@ class SingBoxConfigBuilder {
   /// `C:\Path\App.exe` → `App.exe`; a bare package/name is returned as-is.
   String _exeName(String id) {
     final normalized = id.replaceAll('\\', '/');
-    final base = normalized.contains('/') ? normalized.split('/').last : normalized;
+    final base = normalized.contains('/')
+        ? normalized.split('/').last
+        : normalized;
     return base;
   }
 

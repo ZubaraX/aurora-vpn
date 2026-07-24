@@ -10,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -29,7 +30,10 @@ import libbox.StringIterator
 import libbox.SystemProxyStatus
 import libbox.TunOptions
 import libbox.WIFIState
+import org.json.JSONObject
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
 import libbox.NetworkInterface as LibboxNetworkInterface
 import libbox.NetworkInterfaceIterator as LibboxNetworkInterfaceIterator
 import libbox.Notification as LibboxNotification
@@ -62,6 +66,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var tun: ParcelFileDescriptor? = null
     private var connectedSince: Long = 0
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var defaultNetwork: Network? = null
+    private var statsUploadTotal = 0L
+    private var statsDownloadTotal = 0L
+    private var statsSampleAt = 0L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -99,9 +107,18 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 }
                 val server = CommandServer(this, this)
                 server.start()
-                server.startOrReloadService(config, override)
+                // Resolve the log file with Android's actual user/profile
+                // directory instead of hard-coding /data/user/0 in Dart.
+                val resolvedConfig = JSONObject(config).apply {
+                    optJSONObject("log")
+                        ?.put("output", File(filesDir, "box.log").absolutePath)
+                }.toString()
+                server.startOrReloadService(resolvedConfig, override)
                 commandServer = server
                 connectedSince = System.currentTimeMillis()
+                statsUploadTotal = 0
+                statsDownloadTotal = 0
+                statsSampleAt = 0
                 emitStatus("connected")
                 main.post { startStatsPump() }
             } catch (t: Throwable) {
@@ -135,6 +152,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             } catch (_: Throwable) {}
         }
         networkCallback = null
+        defaultNetwork = null
         try { tun?.close() } catch (_: Throwable) {}
         tun = null
         emitStatus("disconnected")
@@ -220,6 +238,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             for (network in cm.allNetworks) {
                 val lp = cm.getLinkProperties(network) ?: continue
                 val caps = cm.getNetworkCapabilities(network) ?: continue
+                // The TUN is an output of libbox, never an upstream network.
+                // Feeding it back to auto_detect_interface creates a routing
+                // loop where protected proxy sockets are bound to the VPN.
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
                 val name = lp.interfaceName ?: continue
                 val ni = java.net.NetworkInterface.getByName(name) ?: continue
                 val item = LibboxNetworkInterface()
@@ -267,18 +289,54 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = notify(cm, network, listener)
+            override fun onAvailable(network: Network) {
+                if (notify(cm, network, listener)) defaultNetwork = network
+            }
+
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) =
-                notify(cm, network, listener)
-            override fun onLost(network: Network) =
-                listener.updateDefaultInterface("", -1, false, false)
+                updateDefaultNetwork(cm, network, listener)
+
+            override fun onCapabilitiesChanged(
+                network: Network,
+                capabilities: NetworkCapabilities
+            ) = updateDefaultNetwork(cm, network, listener)
+
+            override fun onLost(network: Network) {
+                if (network != defaultNetwork) return
+                defaultNetwork = null
+                val replacement = findUnderlyingNetwork(cm)
+                if (replacement == null || !notify(cm, replacement, listener)) {
+                    listener.updateDefaultInterface("", -1, false, false)
+                } else {
+                    defaultNetwork = replacement
+                }
+            }
         }
         networkCallback = cb
-        // registerDefaultNetworkCallback is asynchronous. libbox can start
-        // resolving remote rule-sets immediately, so seed the monitor with the
-        // current network before returning to the Go core.
-        cm.activeNetwork?.let { notify(cm, it, listener) }
-        cm.registerDefaultNetworkCallback(cb)
+        // Registration is asynchronous. libbox can start resolving remote
+        // rule-sets immediately, so seed the monitor before returning.
+        findUnderlyingNetwork(cm)?.let {
+            if (notify(cm, it, listener)) defaultNetwork = it
+        }
+
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            .build()
+
+        // Since Android P registerDefaultNetworkCallback() reports the VPN
+        // itself. Keep a request for the physical default network instead,
+        // matching the approach used by the official sing-box Android client.
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                cm.registerBestMatchingNetworkCallback(request, cb, main)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ->
+                cm.requestNetwork(request, cb, main)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ->
+                cm.registerDefaultNetworkCallback(cb, main)
+            else ->
+                cm.registerDefaultNetworkCallback(cb)
+        }
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
@@ -289,14 +347,60 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             } catch (_: Throwable) {}
         }
         networkCallback = null
+        defaultNetwork = null
     }
 
-    private fun notify(cm: ConnectivityManager, network: Network, l: InterfaceUpdateListener) {
-        try {
-            val name = cm.getLinkProperties(network)?.interfaceName ?: return
+    private fun updateDefaultNetwork(
+        cm: ConnectivityManager,
+        network: Network,
+        listener: InterfaceUpdateListener
+    ) {
+        if (network != defaultNetwork && defaultNetwork != null) return
+        if (notify(cm, network, listener)) defaultNetwork = network
+    }
+
+    private fun findUnderlyingNetwork(cm: ConnectivityManager): Network? {
+        fun usable(network: Network): Boolean {
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED) &&
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                cm.getLinkProperties(network)?.interfaceName != null
+        }
+
+        val active = cm.activeNetwork
+        if (active != null && usable(active)) return active
+        return cm.allNetworks
+            .filter(::usable)
+            .maxByOrNull { network ->
+                val caps = cm.getNetworkCapabilities(network)
+                when {
+                    caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true -> 2
+                    caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true -> 1
+                    else -> 0
+                }
+            }
+    }
+
+    private fun notify(
+        cm: ConnectivityManager,
+        network: Network,
+        listener: InterfaceUpdateListener
+    ): Boolean {
+        return try {
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            ) {
+                return false
+            }
+            val name = cm.getLinkProperties(network)?.interfaceName ?: return false
             val index = java.net.NetworkInterface.getByName(name)?.index ?: -1
-            l.updateDefaultInterface(name, index, false, false)
-        } catch (_: Throwable) {}
+            listener.updateDefaultInterface(name, index, false, false)
+            true
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     override fun clearDNSCache() {}
@@ -332,19 +436,68 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val tick = object : Runnable {
             override fun run() {
                 if (commandServer == null) return
-                statsSink?.success(
-                    mapOf(
-                        "uploadTotal" to 0,
-                        "downloadTotal" to 0,
-                        "uploadSpeed" to 0,
-                        "downloadSpeed" to 0,
-                        "connectedSince" to connectedSince
-                    )
-                )
-                main.postDelayed(this, 1000)
+                val nextTick = this
+                Thread({
+                    val totals = readClashTotals()
+                    main.post {
+                        if (commandServer == null) return@post
+                        val now = System.currentTimeMillis()
+                        val upload = totals?.first ?: statsUploadTotal
+                        val download = totals?.second ?: statsDownloadTotal
+                        val elapsedSeconds =
+                            if (statsSampleAt == 0L) 0.0
+                            else (now - statsSampleAt).coerceAtLeast(1) / 1000.0
+                        val uploadSpeed =
+                            if (elapsedSeconds == 0.0) 0.0
+                            else (upload - statsUploadTotal)
+                                .coerceAtLeast(0) / elapsedSeconds
+                        val downloadSpeed =
+                            if (elapsedSeconds == 0.0) 0.0
+                            else (download - statsDownloadTotal)
+                                .coerceAtLeast(0) / elapsedSeconds
+                        statsUploadTotal = upload
+                        statsDownloadTotal = download
+                        statsSampleAt = now
+                        statsSink?.success(
+                            mapOf(
+                                "uploadTotal" to upload,
+                                "downloadTotal" to download,
+                                "uploadSpeed" to uploadSpeed,
+                                "downloadSpeed" to downloadSpeed,
+                                "connectedSince" to connectedSince
+                            )
+                        )
+                        main.postDelayed(nextTick, 1000)
+                    }
+                }, "aurora-stats").start()
             }
         }
-        main.postDelayed(tick, 1000)
+        main.post(tick)
+    }
+
+    private fun readClashTotals(): Pair<Long, Long>? {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", 9090), 1000)
+                socket.soTimeout = 3000
+                val writer = socket.getOutputStream().bufferedWriter()
+                writer.write("GET /connections HTTP/1.1\r\n")
+                writer.write("Host: 127.0.0.1:9090\r\n")
+                writer.write("Connection: close\r\n\r\n")
+                writer.flush()
+                val response = socket.getInputStream().bufferedReader().readText()
+                val start = response.indexOf('{')
+                val end = response.lastIndexOf('}')
+                if (start < 0 || end < start) return null
+                val json = JSONObject(response.substring(start, end + 1))
+                Pair(
+                    json.optLong("uploadTotal", statsUploadTotal),
+                    json.optLong("downloadTotal", statsDownloadTotal)
+                )
+            }
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun startForegroundNotification() {

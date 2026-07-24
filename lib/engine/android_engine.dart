@@ -37,23 +37,28 @@ class AndroidVpnEngine implements VpnEngine {
         _statusCtrl.add(ConnectionStatus.error);
         return;
       }
-      final s = ConnectionStatus.values
-          .firstWhere((v) => v.name == raw, orElse: () => _status);
+      final s = ConnectionStatus.values.firstWhere(
+        (v) => v.name == raw,
+        orElse: () => _status,
+      );
       _status = s;
       _statusCtrl.add(s);
     }, onError: (_) {});
     _statsSub = _statsEvents.receiveBroadcastStream().listen((e) {
       if (e is Map) {
-        _statsCtrl.add(ConnectionStats(
-          uploadTotal: (e['uploadTotal'] as num?)?.toInt() ?? 0,
-          downloadTotal: (e['downloadTotal'] as num?)?.toInt() ?? 0,
-          uploadSpeed: (e['uploadSpeed'] as num?)?.toDouble() ?? 0,
-          downloadSpeed: (e['downloadSpeed'] as num?)?.toDouble() ?? 0,
-          connectedSince: e['connectedSince'] == null
-              ? null
-              : DateTime.fromMillisecondsSinceEpoch(
-                  (e['connectedSince'] as num).toInt()),
-        ));
+        _statsCtrl.add(
+          ConnectionStats(
+            uploadTotal: (e['uploadTotal'] as num?)?.toInt() ?? 0,
+            downloadTotal: (e['downloadTotal'] as num?)?.toInt() ?? 0,
+            uploadSpeed: (e['uploadSpeed'] as num?)?.toDouble() ?? 0,
+            downloadSpeed: (e['downloadSpeed'] as num?)?.toDouble() ?? 0,
+            connectedSince: e['connectedSince'] == null
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(
+                    (e['connectedSince'] as num).toInt(),
+                  ),
+          ),
+        );
       }
     }, onError: (_) {});
   }
@@ -84,10 +89,12 @@ class AndroidVpnEngine implements VpnEngine {
 
   @override
   Future<void> start(ProxyNode node, VpnSettings settings) async {
+    _lastError = null;
     _status = ConnectionStatus.connecting;
     _statusCtrl.add(_status);
-    final config =
-        const SingBoxConfigBuilder(isAndroid: true).buildString(node, settings);
+    final config = const SingBoxConfigBuilder(
+      isAndroid: true,
+    ).buildString(node, settings);
     await _method.invokeMethod('start', {
       'config': config,
       'perAppMode': settings.perAppMode.name,
@@ -100,6 +107,15 @@ class AndroidVpnEngine implements VpnEngine {
     _status = ConnectionStatus.disconnecting;
     _statusCtrl.add(_status);
     await _method.invokeMethod('stop');
+  }
+
+  @override
+  Future<bool> verifyConnection() async {
+    try {
+      return await _method.invokeMethod<bool>('probe') ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override

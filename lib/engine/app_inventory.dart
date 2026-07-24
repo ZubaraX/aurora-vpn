@@ -34,7 +34,9 @@ class AppInventory {
         final set = <String>{};
         for (final line in (r.stdout as String).split('\n')) {
           final image = line.split('","').first.replaceAll('"', '').trim();
-          if (image.toLowerCase().endsWith('.exe')) set.add(image.toLowerCase());
+          if (image.toLowerCase().endsWith('.exe')) {
+            set.add(image.toLowerCase());
+          }
         }
         return set;
       }
@@ -44,6 +46,32 @@ class AppInventory {
       }
     } catch (_) {}
     return {};
+  }
+
+  /// Active upstream connection used to choose a trigger profile.
+  Future<String> activeNetworkType() async {
+    if (!Platform.isAndroid) return 'other';
+    try {
+      return await _channel.invokeMethod<String>('networkType') ?? 'other';
+    } catch (_) {
+      return 'other';
+    }
+  }
+
+  Future<bool> hasTriggerAccess() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      return await _channel.invokeMethod<bool>('hasTriggerAccess') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> requestTriggerAccess() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('requestTriggerAccess');
+    } catch (_) {}
   }
 
   Future<List<InstalledApp>> _android() async {
@@ -68,11 +96,13 @@ class AppInventory {
       if (!image.toLowerCase().endsWith('.exe')) continue;
       if (!seen.add(image.toLowerCase())) continue;
       final isSystem = _windowsSystem.contains(image.toLowerCase());
-      apps.add(InstalledApp(
-        id: image,
-        name: image.replaceAll(RegExp(r'\.exe$', caseSensitive: false), ''),
-        isSystem: isSystem,
-      ));
+      apps.add(
+        InstalledApp(
+          id: image,
+          name: image.replaceAll(RegExp(r'\.exe$', caseSensitive: false), ''),
+          isSystem: isSystem,
+        ),
+      );
     }
     apps.sort((a, b) {
       if (a.isSystem != b.isSystem) return a.isSystem ? 1 : -1;
@@ -82,27 +112,42 @@ class AppInventory {
   }
 
   static const _windowsSystem = {
-    'svchost.exe', 'system', 'registry', 'smss.exe', 'csrss.exe',
-    'wininit.exe', 'services.exe', 'lsass.exe', 'winlogon.exe', 'dwm.exe',
-    'fontdrvhost.exe', 'sihost.exe', 'ctfmon.exe', 'runtimebroker.exe',
+    'svchost.exe',
+    'system',
+    'registry',
+    'smss.exe',
+    'csrss.exe',
+    'wininit.exe',
+    'services.exe',
+    'lsass.exe',
+    'winlogon.exe',
+    'dwm.exe',
+    'fontdrvhost.exe',
+    'sihost.exe',
+    'ctfmon.exe',
+    'runtimebroker.exe',
   };
 
   List<InstalledApp> _sample() => const [
-        InstalledApp(id: 'org.telegram.messenger', name: 'Telegram'),
-        InstalledApp(id: 'com.google.android.youtube', name: 'YouTube'),
-        InstalledApp(id: 'com.instagram.android', name: 'Instagram'),
-        InstalledApp(id: 'com.whatsapp', name: 'WhatsApp'),
-        InstalledApp(id: 'com.discord', name: 'Discord'),
-        InstalledApp(id: 'com.spotify.music', name: 'Spotify'),
-        InstalledApp(id: 'com.android.chrome', name: 'Chrome'),
-        InstalledApp(id: 'com.brave.browser', name: 'Brave'),
-        InstalledApp(id: 'com.valvesoftware.steam', name: 'Steam'),
-        InstalledApp(id: 'com.epicgames.launcher', name: 'Epic Games'),
-        InstalledApp(id: 'com.microsoft.office.outlook', name: 'Outlook'),
-        InstalledApp(id: 'ru.yandex.searchplugin', name: 'Яндекс'),
-        InstalledApp(id: 'com.vk.im', name: 'VK Мессенджер'),
-        InstalledApp(id: 'com.github.desktop', name: 'GitHub Desktop'),
-        InstalledApp(id: 'com.figma.desktop', name: 'Figma'),
-        InstalledApp(id: 'system.android', name: 'Системные сервисы', isSystem: true),
-      ];
+    InstalledApp(id: 'org.telegram.messenger', name: 'Telegram'),
+    InstalledApp(id: 'com.google.android.youtube', name: 'YouTube'),
+    InstalledApp(id: 'com.instagram.android', name: 'Instagram'),
+    InstalledApp(id: 'com.whatsapp', name: 'WhatsApp'),
+    InstalledApp(id: 'com.discord', name: 'Discord'),
+    InstalledApp(id: 'com.spotify.music', name: 'Spotify'),
+    InstalledApp(id: 'com.android.chrome', name: 'Chrome'),
+    InstalledApp(id: 'com.brave.browser', name: 'Brave'),
+    InstalledApp(id: 'com.valvesoftware.steam', name: 'Steam'),
+    InstalledApp(id: 'com.epicgames.launcher', name: 'Epic Games'),
+    InstalledApp(id: 'com.microsoft.office.outlook', name: 'Outlook'),
+    InstalledApp(id: 'ru.yandex.searchplugin', name: 'Яндекс'),
+    InstalledApp(id: 'com.vk.im', name: 'VK Мессенджер'),
+    InstalledApp(id: 'com.github.desktop', name: 'GitHub Desktop'),
+    InstalledApp(id: 'com.figma.desktop', name: 'Figma'),
+    InstalledApp(
+      id: 'system.android',
+      name: 'Системные сервисы',
+      isSystem: true,
+    ),
+  ];
 }

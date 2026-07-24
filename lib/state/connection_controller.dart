@@ -27,12 +27,11 @@ class ConnectionUiState {
     ConnectionStats? stats,
     String? message,
     bool clearMessage = false,
-  }) =>
-      ConnectionUiState(
-        status: status ?? this.status,
-        stats: stats ?? this.stats,
-        message: clearMessage ? null : (message ?? this.message),
-      );
+  }) => ConnectionUiState(
+    status: status ?? this.status,
+    stats: stats ?? this.stats,
+    message: clearMessage ? null : (message ?? this.message),
+  );
 }
 
 /// Bridges the [VpnEngine] streams into UI state and exposes the connect /
@@ -40,7 +39,7 @@ class ConnectionUiState {
 /// fastest tested → first available) lives here so every entry point agrees.
 class ConnectionController extends StateNotifier<ConnectionUiState> {
   ConnectionController(this._ref, this._engine)
-      : super(const ConnectionUiState()) {
+    : super(const ConnectionUiState()) {
     _statusSub = _engine.statusStream.listen((s) {
       state = state.copyWith(status: s);
     });
@@ -53,6 +52,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   final VpnEngine _engine;
   StreamSubscription? _statusSub;
   StreamSubscription? _statsSub;
+  int _operation = 0;
 
   bool get isRealCore => _engine.isRealCore;
   String get backendLabel => _engine.backendLabel;
@@ -93,14 +93,11 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
       state = state.copyWith(message: 'Добавьте сервер или подписку');
       return;
     }
-    _ref.read(settingsProvider.notifier).setActiveNode(node.id);
-    await _engine.start(node, _ref.read(settingsProvider));
+    await _connectVerified(node);
   }
 
   Future<void> connectTo(ProxyNode node) async {
-    _ref.read(settingsProvider.notifier).setActiveNode(node.id);
-    if (state.status.isActive) await _engine.stop();
-    await _engine.start(node, _ref.read(settingsProvider));
+    await _connectVerified(node);
   }
 
   /// Connects to a specific node by id; empty/unknown id falls back to the
@@ -112,7 +109,96 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     return connect();
   }
 
-  Future<void> disconnect() => _engine.stop();
+  Future<void> disconnect() {
+    _operation++;
+    return _engine.stop();
+  }
+
+  Future<void> _connectVerified(ProxyNode preferred) async {
+    final operation = ++_operation;
+    state = state.copyWith(clearMessage: true);
+    final candidates = _fallbackCandidates(preferred).take(4);
+
+    for (final node in candidates) {
+      if (operation != _operation) return;
+      _ref.read(settingsProvider.notifier).setActiveNode(node.id);
+      if (_engine.status.isActive) {
+        await _engine.stop();
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      if (operation != _operation) return;
+
+      await _engine.start(node, _ref.read(settingsProvider));
+      final started = await _waitForConnected();
+      if (operation != _operation) return;
+      if (!started) return;
+
+      final reachable = await _engine.verifyConnection();
+      if (operation != _operation) return;
+      if (reachable) {
+        if (node.id != preferred.id) {
+          state = state.copyWith(
+            message:
+                'Выбранный сервер не передавал трафик — подключён резервный',
+          );
+        }
+        return;
+      }
+
+      await _engine.stop();
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+
+    if (operation == _operation) {
+      state = state.copyWith(
+        message: 'Серверы доступны по TCP, но не передают VPN-трафик',
+      );
+    }
+  }
+
+  Future<bool> _waitForConnected() async {
+    if (_engine.status == ConnectionStatus.connected) return true;
+    try {
+      final result = await _engine.statusStream
+          .firstWhere(
+            (status) =>
+                status == ConnectionStatus.connected ||
+                status == ConnectionStatus.error,
+          )
+          .timeout(const Duration(seconds: 30));
+      return result == ConnectionStatus.connected;
+    } on TimeoutException {
+      state = state.copyWith(message: 'Истекло время ожидания VPN');
+      return false;
+    }
+  }
+
+  Iterable<ProxyNode> _fallbackCandidates(ProxyNode preferred) {
+    final nodes = _ref.read(profileProvider).nodes;
+    final security = '${preferred.params['security']}';
+    final transport = '${preferred.params['network']}';
+    final preferDifferentTransport = security == 'reality';
+    final alternatives = nodes.where((node) => node.id != preferred.id).toList()
+      ..sort((a, b) {
+        final aDifferent =
+            '${a.params['security']}' != security ||
+            '${a.params['network']}' != transport;
+        final bDifferent =
+            '${b.params['security']}' != security ||
+            '${b.params['network']}' != transport;
+        if (aDifferent != bDifferent) {
+          return aDifferent == preferDifferentTransport ? -1 : 1;
+        }
+        final aLatency = (a.latencyMs == null || a.latencyMs! < 0)
+            ? 1 << 30
+            : a.latencyMs!;
+        final bLatency = (b.latencyMs == null || b.latencyMs! < 0)
+            ? 1 << 30
+            : b.latencyMs!;
+        return aLatency.compareTo(bLatency);
+      });
+    return [preferred, ...alternatives];
+  }
 
   ProxyNode? _resolveNode() {
     final settings = _ref.read(settingsProvider);
@@ -136,8 +222,8 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
 
 final connectionProvider =
     StateNotifierProvider<ConnectionController, ConnectionUiState>((ref) {
-  return ConnectionController(ref, ref.watch(engineProvider));
-});
+      return ConnectionController(ref, ref.watch(engineProvider));
+    });
 
 /// The currently selected node (or null), derived from settings + profile.
 final activeNodeProvider = Provider<ProxyNode?>((ref) {

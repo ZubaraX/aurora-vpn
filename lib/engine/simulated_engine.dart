@@ -72,6 +72,9 @@ class SimulatedEngine implements VpnEngine {
     });
   }
 
+  @override
+  Future<bool> verifyConnection() async => true;
+
   void _startTicker() {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -89,7 +92,9 @@ class SimulatedEngine implements VpnEngine {
   }
 
   double _drift(double current, double floor, double ceil) {
-    if (current <= 0) current = floor + _rng.nextDouble() * (ceil - floor) * 0.3;
+    if (current <= 0) {
+      current = floor + _rng.nextDouble() * (ceil - floor) * 0.3;
+    }
     final step = (_rng.nextDouble() - 0.45) * ceil * 0.25;
     return (current + step).clamp(floor, ceil);
   }

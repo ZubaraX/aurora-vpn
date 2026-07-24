@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../data/models/enums.dart';
 import '../../state/connection_controller.dart';
 import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
@@ -31,14 +32,26 @@ class _RootShellState extends ConsumerState<RootShell> {
   ];
 
   static const _dests = [
-    (icon: Icons.shield_outlined, active: Icons.shield_rounded, label: 'Главная'),
+    (
+      icon: Icons.shield_outlined,
+      active: Icons.shield_rounded,
+      label: 'Главная',
+    ),
     (icon: Icons.dns_outlined, active: Icons.dns_rounded, label: 'Серверы'),
-    (icon: Icons.apps_outlined, active: Icons.apps_rounded, label: 'Приложения'),
+    (
+      icon: Icons.apps_outlined,
+      active: Icons.apps_rounded,
+      label: 'Приложения',
+    ),
     (icon: Icons.tune_outlined, active: Icons.tune_rounded, label: 'Настройки'),
   ];
 
   Timer? _triggerTimer;
   Set<String> _prevTriggersRunning = {};
+  String? _lastTriggerApp;
+  String? _lastTriggerNetwork;
+  String? _lastTriggerProfile;
+  bool _checkingTriggers = false;
 
   @override
   void initState() {
@@ -47,8 +60,10 @@ class _RootShellState extends ConsumerState<RootShell> {
       _maybeAutoConnect();
       _checkForUpdate();
     });
-    _triggerTimer =
-        Timer.periodic(const Duration(seconds: 6), (_) => _checkTriggerApps());
+    _triggerTimer = Timer.periodic(
+      const Duration(seconds: 6),
+      (_) => _checkTriggerApps(),
+    );
   }
 
   Future<void> _checkForUpdate() async {
@@ -76,19 +91,63 @@ class _RootShellState extends ConsumerState<RootShell> {
   /// aren't already connected). Edge detection avoids reconnecting right after a
   /// manual disconnect while the trigger app keeps running.
   Future<void> _checkTriggerApps() async {
-    final triggers = ref.read(settingsProvider).triggerApps;
-    if (triggers.isEmpty) return;
-    final running = await ref.read(appInventoryProvider).runningIds();
-    if (!mounted) return;
-    final active = <String>{
-      for (final id in triggers.keys)
-        if (running.contains(id.toLowerCase())) id,
-    };
-    final newly = active.difference(_prevTriggersRunning);
-    _prevTriggersRunning = active;
-    if (newly.isNotEmpty && !ref.read(connectionProvider).status.isActive) {
-      // Connect to the profile chosen for the app that just launched.
-      ref.read(connectionProvider.notifier).connectToId(triggers[newly.first]);
+    if (_checkingTriggers) return;
+    _checkingTriggers = true;
+    try {
+      final settings = ref.read(settingsProvider);
+      final triggers = settings.triggerApps;
+      if (triggers.isEmpty) {
+        _prevTriggersRunning = {};
+        _lastTriggerApp = null;
+        return;
+      }
+      final inventory = ref.read(appInventoryProvider);
+      final results = await Future.wait([
+        inventory.runningIds(),
+        inventory.activeNetworkType(),
+      ]);
+      if (!mounted) return;
+      final running = results[0] as Set<String>;
+      final networkType = results[1] as String;
+      final active = <String>{
+        for (final id in triggers.keys)
+          if (running.contains(id.toLowerCase())) id,
+      };
+      final newly = active.difference(_prevTriggersRunning);
+      _prevTriggersRunning = active;
+
+      if (newly.isNotEmpty && !ref.read(connectionProvider).status.isActive) {
+        final appId = newly.first;
+        final profileId = settings.triggerProfileFor(appId, networkType);
+        _lastTriggerApp = appId;
+        _lastTriggerNetwork = networkType;
+        _lastTriggerProfile = profileId;
+        await ref.read(connectionProvider.notifier).connectToId(profileId);
+        return;
+      }
+
+      // If the phone moves between Wi-Fi and mobile data while a trigger
+      // session is active, switch to the profile chosen for the new network.
+      final appId = _lastTriggerApp;
+      if (appId != null &&
+          active.contains(appId) &&
+          networkType != _lastTriggerNetwork &&
+          ref.read(connectionProvider).status == ConnectionStatus.connected) {
+        final profileId = settings.triggerProfileFor(appId, networkType);
+        _lastTriggerNetwork = networkType;
+        if (profileId != _lastTriggerProfile) {
+          _lastTriggerProfile = profileId;
+          await ref.read(connectionProvider.notifier).connectToId(profileId);
+        }
+      }
+
+      if (appId != null && !active.contains(appId)) {
+        _lastTriggerApp = null;
+        _lastTriggerNetwork = null;
+        _lastTriggerProfile = null;
+      }
+    } finally {
+      _checkingTriggers = false;
     }
   }
 
@@ -115,7 +174,11 @@ class _RootShellState extends ConsumerState<RootShell> {
           index: index,
           onSelect: (i) => ref.read(navIndexProvider.notifier).state = i,
         ),
-        const VerticalDivider(width: 1, thickness: 1, color: AppColors.hairline),
+        const VerticalDivider(
+          width: 1,
+          thickness: 1,
+          color: AppColors.hairline,
+        ),
         Expanded(child: content),
       ],
     );
@@ -132,11 +195,15 @@ class _RootShellState extends ConsumerState<RootShell> {
           backgroundColor: Colors.transparent,
           indicatorColor: AppColors.auroraTeal.withValues(alpha: 0.16),
           labelTextStyle: WidgetStateProperty.all(
-              AppType.ui(11, weight: FontWeight.w600)),
-          iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(
+            AppType.ui(11, weight: FontWeight.w600),
+          ),
+          iconTheme: WidgetStateProperty.resolveWith(
+            (s) => IconThemeData(
               color: s.contains(WidgetState.selected)
                   ? AppColors.auroraTeal
-                  : AppColors.mist)),
+                  : AppColors.mist,
+            ),
+          ),
         ),
         child: NavigationBar(
           height: 66,
@@ -182,13 +249,24 @@ class _SideRail extends StatelessWidget {
                     gradient: AppColors.auroraGradient,
                     borderRadius: BorderRadius.circular(9),
                   ),
-                  child: const Icon(Icons.shield_rounded, size: 18, color: AppColors.voidBg),
+                  child: const Icon(
+                    Icons.shield_rounded,
+                    size: 18,
+                    color: AppColors.voidBg,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 ShaderMask(
-                  shaderCallback: (r) => AppColors.auroraGradient.createShader(r),
-                  child: Text('Aurora',
-                      style: AppType.display(20, weight: FontWeight.w700, color: Colors.white)),
+                  shaderCallback: (r) =>
+                      AppColors.auroraGradient.createShader(r),
+                  child: Text(
+                    'Aurora',
+                    style: AppType.display(
+                      20,
+                      weight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -196,13 +274,20 @@ class _SideRail extends StatelessWidget {
           for (var i = 0; i < _RootShellState._dests.length; i++)
             _railItem(i, _RootShellState._dests[i], i == index),
           const Spacer(),
-          Text('sing-box core', style: AppType.mono(10, color: AppColors.mistDim)),
+          Text(
+            'sing-box core',
+            style: AppType.mono(10, color: AppColors.mistDim),
+          ),
         ],
       ),
     );
   }
 
-  Widget _railItem(int i, ({IconData icon, IconData active, String label}) d, bool on) {
+  Widget _railItem(
+    int i,
+    ({IconData icon, IconData active, String label}) d,
+    bool on,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
@@ -215,13 +300,20 @@ class _SideRail extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: Row(
               children: [
-                Icon(on ? d.active : d.icon,
-                    size: 20, color: on ? AppColors.auroraTeal : AppColors.mist),
+                Icon(
+                  on ? d.active : d.icon,
+                  size: 20,
+                  color: on ? AppColors.auroraTeal : AppColors.mist,
+                ),
                 const SizedBox(width: 12),
-                Text(d.label,
-                    style: AppType.ui(13.5,
-                        weight: on ? FontWeight.w700 : FontWeight.w500,
-                        color: on ? AppColors.frost : AppColors.mist)),
+                Text(
+                  d.label,
+                  style: AppType.ui(
+                    13.5,
+                    weight: on ? FontWeight.w700 : FontWeight.w500,
+                    color: on ? AppColors.frost : AppColors.mist,
+                  ),
+                ),
               ],
             ),
           ),

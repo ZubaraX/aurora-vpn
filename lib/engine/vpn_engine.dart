@@ -26,5 +26,8 @@ abstract class VpnEngine {
   Future<void> start(ProxyNode node, VpnSettings settings);
   Future<void> stop();
 
+  /// Verifies that the selected outbound can carry an HTTPS request.
+  Future<bool> verifyConnection();
+
   void dispose();
 }

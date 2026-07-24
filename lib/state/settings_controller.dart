@@ -36,8 +36,9 @@ class SettingsController extends StateNotifier<VpnSettings> {
 
   void clearApps() => _commit(state.copyWith(perAppSelected: {}));
 
-  void selectApps(Iterable<String> ids) =>
-      _commit(state.copyWith(perAppSelected: {...state.perAppSelected, ...ids}));
+  void selectApps(Iterable<String> ids) => _commit(
+    state.copyWith(perAppSelected: {...state.perAppSelected, ...ids}),
+  );
 
   void deselectApps(Iterable<String> ids) {
     final set = {...state.perAppSelected}..removeAll(ids);
@@ -46,18 +47,45 @@ class SettingsController extends StateNotifier<VpnSettings> {
 
   void toggleTriggerApp(String id) {
     final map = {...state.triggerApps};
-    map.containsKey(id) ? map.remove(id) : map[id] = '';
-    _commit(state.copyWith(triggerApps: map));
+    final wifi = {...state.triggerWifiProfiles};
+    final mobile = {...state.triggerMobileProfiles};
+    if (map.containsKey(id)) {
+      map.remove(id);
+      wifi.remove(id);
+      mobile.remove(id);
+    } else {
+      map[id] = '';
+    }
+    _commit(
+      state.copyWith(
+        triggerApps: map,
+        triggerWifiProfiles: wifi,
+        triggerMobileProfiles: mobile,
+      ),
+    );
   }
 
-  /// Sets which server a trigger app connects to ('' = current server).
-  void setTriggerProfile(String id, String nodeId) {
-    final map = {...state.triggerApps};
+  /// Sets which server a trigger app uses on Wi-Fi.
+  void setTriggerWifiProfile(String id, String nodeId) {
+    final map = {...state.triggerWifiProfiles};
     map[id] = nodeId;
-    _commit(state.copyWith(triggerApps: map));
+    _commit(state.copyWith(triggerWifiProfiles: map));
   }
 
-  void clearTriggerApps() => _commit(state.copyWith(triggerApps: {}));
+  /// Sets which server a trigger app uses on mobile internet.
+  void setTriggerMobileProfile(String id, String nodeId) {
+    final map = {...state.triggerMobileProfiles};
+    map[id] = nodeId;
+    _commit(state.copyWith(triggerMobileProfiles: map));
+  }
+
+  void clearTriggerApps() => _commit(
+    state.copyWith(
+      triggerApps: {},
+      triggerWifiProfiles: {},
+      triggerMobileProfiles: {},
+    ),
+  );
 
   void setActiveNode(String? id) =>
       _commit(state.copyWith(activeNodeId: id, clearActiveNode: id == null));
@@ -75,7 +103,8 @@ class SettingsController extends StateNotifier<VpnSettings> {
   void setLocale(String v) => _commit(state.copyWith(locale: v));
 }
 
-final settingsProvider =
-    StateNotifierProvider<SettingsController, VpnSettings>((ref) {
-  return SettingsController(ref.watch(storageProvider));
-});
+final settingsProvider = StateNotifierProvider<SettingsController, VpnSettings>(
+  (ref) {
+    return SettingsController(ref.watch(storageProvider));
+  },
+);

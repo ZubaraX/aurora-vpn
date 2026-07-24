@@ -8,6 +8,7 @@ import '../../data/models/installed_app.dart';
 import '../../data/models/proxy_node.dart';
 import '../../state/connection_controller.dart';
 import '../../state/profile_controller.dart';
+import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
 import '../../widgets/glass_card.dart';
 
@@ -16,21 +17,47 @@ class TriggerAppsSheet extends ConsumerStatefulWidget {
   const TriggerAppsSheet({super.key});
 
   static Future<void> show(BuildContext context) => showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        builder: (_) => const TriggerAppsSheet(),
-      );
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const TriggerAppsSheet(),
+  );
 
   @override
   ConsumerState<TriggerAppsSheet> createState() => _TriggerAppsSheetState();
 }
 
-class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
+class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
+    with WidgetsBindingObserver {
   String _query = '';
+  bool? _hasTriggerAccess;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshTriggerAccess();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshTriggerAccess();
+  }
+
+  Future<void> _refreshTriggerAccess() async {
+    final allowed = await ref.read(appInventoryProvider).hasTriggerAccess();
+    if (mounted) setState(() => _hasTriggerAccess = allowed);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final selected = ref.watch(settingsProvider).triggerApps;
+    final settings = ref.watch(settingsProvider);
+    final selected = settings.triggerApps;
     final ctrl = ref.read(settingsProvider.notifier);
     final appsAsync = ref.watch(installedAppsProvider);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
@@ -57,8 +84,11 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.rocket_launch_rounded,
-                          color: AppColors.auroraTeal, size: 20),
+                      const Icon(
+                        Icons.rocket_launch_rounded,
+                        color: AppColors.auroraTeal,
+                        size: 20,
+                      ),
                       const SizedBox(width: 10),
                       Text('Триггер-приложения', style: AppType.display(19)),
                       const Spacer(),
@@ -66,7 +96,8 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                         TextButton(
                           onPressed: ctrl.clearTriggerApps,
                           style: TextButton.styleFrom(
-                              foregroundColor: AppColors.mist),
+                            foregroundColor: AppColors.mist,
+                          ),
                           child: const Text('Очистить'),
                         ),
                     ],
@@ -75,6 +106,39 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                     'VPN подключится автоматически, когда откроется любое из выбранных приложений.',
                     style: AppType.ui(12.5, color: AppColors.mist),
                   ),
+                  if (_hasTriggerAccess == false) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
+                      decoration: BoxDecoration(
+                        color: AppColors.slate,
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: AppColors.hairline),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.visibility_outlined,
+                            size: 18,
+                            color: AppColors.auroraTeal,
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Text(
+                              'Разрешите доступ к статистике использования для определения запуска приложений.',
+                              style: AppType.ui(11.5, color: AppColors.mist),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => ref
+                                .read(appInventoryProvider)
+                                .requestTriggerAccess(),
+                            child: const Text('Разрешить'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   TextField(
                     onChanged: (v) => setState(() => _query = v),
@@ -83,8 +147,11 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                       isDense: true,
                       hintText: 'Поиск приложения',
                       hintStyle: AppType.ui(14, color: AppColors.mistDim),
-                      prefixIcon: const Icon(Icons.search_rounded,
-                          color: AppColors.mist, size: 20),
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                        color: AppColors.mist,
+                        size: 20,
+                      ),
                       filled: true,
                       fillColor: AppColors.voidBg,
                       contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -94,8 +161,10 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide:
-                            const BorderSide(color: AppColors.auroraTeal, width: 1.3),
+                        borderSide: const BorderSide(
+                          color: AppColors.auroraTeal,
+                          width: 1.3,
+                        ),
                       ),
                     ),
                   ),
@@ -117,7 +186,9 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                   ];
                   if (_query.isNotEmpty) {
                     final q = _query.toLowerCase();
-                    list = list.where((a) => a.name.toLowerCase().contains(q)).toList();
+                    list = list
+                        .where((a) => a.name.toLowerCase().contains(q))
+                        .toList();
                   }
                   return ListView.builder(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -125,7 +196,8 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                     itemBuilder: (_, i) => _row(
                       list[i],
                       selected.containsKey(list[i].id),
-                      selected[list[i].id] ?? '',
+                      settings.triggerProfileFor(list[i].id, 'wifi'),
+                      settings.triggerProfileFor(list[i].id, 'mobile'),
                       nodes,
                       ctrl,
                     ),
@@ -139,21 +211,14 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
     );
   }
 
-  Widget _row(InstalledApp app, bool checked, String profileId,
-      List<ProxyNode> nodes, SettingsController ctrl) {
-    ProxyNode? profileNode;
-    for (final n in nodes) {
-      if (n.id == profileId) {
-        profileNode = n;
-        break;
-      }
-    }
-    final label = profileId.isEmpty
-        ? 'Текущий сервер'
-        : (profileNode != null
-            ? CountryFlags.cleanName(profileNode.name)
-            : 'узел удалён');
-
+  Widget _row(
+    InstalledApp app,
+    bool checked,
+    String wifiProfileId,
+    String mobileProfileId,
+    List<ProxyNode> nodes,
+    SettingsController ctrl,
+  ) {
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
@@ -169,14 +234,20 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                   color: AppColors.slateHi,
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child:
-                    const Icon(Icons.apps_rounded, size: 20, color: AppColors.mist),
+                child: const Icon(
+                  Icons.apps_rounded,
+                  size: 20,
+                  color: AppColors.mist,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(app.name,
-                    style: AppType.ui(14, weight: FontWeight.w600),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                child: Text(
+                  app.name,
+                  style: AppType.ui(14, weight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               GestureDetector(
                 onTap: () => ctrl.toggleTriggerApp(app.id),
@@ -188,13 +259,17 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
                     gradient: checked ? AppColors.auroraGradient : null,
                     borderRadius: BorderRadius.circular(9),
                     border: Border.all(
-                        color: checked
-                            ? Colors.transparent
-                            : AppColors.hairlineStrong),
+                      color: checked
+                          ? Colors.transparent
+                          : AppColors.hairlineStrong,
+                    ),
                   ),
                   child: checked
-                      ? const Icon(Icons.check_rounded,
-                          size: 17, color: AppColors.voidBg)
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 17,
+                          color: AppColors.voidBg,
+                        )
                       : null,
                 ),
               ),
@@ -202,55 +277,102 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet> {
           ),
           if (checked) ...[
             const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.dns_rounded, size: 15, color: AppColors.mistDim),
-                const SizedBox(width: 8),
-                Text('Профиль', style: AppType.ui(12, color: AppColors.mist)),
-                const Spacer(),
-                PopupMenuButton<String>(
-                  color: AppColors.slate,
-                  onSelected: (v) => ctrl.setTriggerProfile(app.id, v),
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: '', child: Text('Текущий сервер')),
-                    for (final n in nodes)
-                      PopupMenuItem(
-                        value: n.id,
-                        child: Text(CountryFlags.cleanName(n.name),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ),
-                  ],
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: AppColors.voidBg,
-                      borderRadius: BorderRadius.circular(9),
-                      border: Border.all(color: AppColors.hairline),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 150),
-                          child: Text(label,
-                              style: AppType.ui(12.5,
-                                  weight: FontWeight.w700,
-                                  color: AppColors.auroraTeal),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                        const Icon(Icons.arrow_drop_down_rounded,
-                            color: AppColors.mist, size: 20),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            _profileRow(
+              icon: Icons.wifi_rounded,
+              title: 'Wi-Fi',
+              profileId: wifiProfileId,
+              nodes: nodes,
+              onSelected: (value) => ctrl.setTriggerWifiProfile(app.id, value),
+            ),
+            const SizedBox(height: 8),
+            _profileRow(
+              icon: Icons.signal_cellular_alt_rounded,
+              title: 'Мобильная сеть',
+              profileId: mobileProfileId,
+              nodes: nodes,
+              onSelected: (value) =>
+                  ctrl.setTriggerMobileProfile(app.id, value),
             ),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _profileRow({
+    required IconData icon,
+    required String title,
+    required String profileId,
+    required List<ProxyNode> nodes,
+    required ValueChanged<String> onSelected,
+  }) {
+    ProxyNode? profileNode;
+    for (final node in nodes) {
+      if (node.id == profileId) {
+        profileNode = node;
+        break;
+      }
+    }
+    final label = profileId.isEmpty
+        ? 'Текущий сервер'
+        : (profileNode == null
+              ? 'узел удалён'
+              : CountryFlags.cleanName(profileNode.name));
+
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: AppColors.mistDim),
+        const SizedBox(width: 8),
+        Text(title, style: AppType.ui(12, color: AppColors.mist)),
+        const Spacer(),
+        PopupMenuButton<String>(
+          color: AppColors.slate,
+          onSelected: onSelected,
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: '', child: Text('Текущий сервер')),
+            for (final node in nodes)
+              PopupMenuItem(
+                value: node.id,
+                child: Text(
+                  CountryFlags.cleanName(node.name),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: AppColors.voidBg,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(color: AppColors.hairline),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 132),
+                  child: Text(
+                    label,
+                    style: AppType.ui(
+                      12.5,
+                      weight: FontWeight.w700,
+                      color: AppColors.auroraTeal,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_drop_down_rounded,
+                  color: AppColors.mist,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
