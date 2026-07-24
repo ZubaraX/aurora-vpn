@@ -10,6 +10,13 @@ on:
       singbox_ref:
         description: sing-box git ref (tag)
         default: v1.13.14
+      target_arch:
+        description: Android architecture to build
+        type: choice
+        options:
+          - arm64
+          - amd64
+        default: arm64
 
 jobs:
   libbox:
@@ -18,6 +25,7 @@ jobs:
     # interpolating it straight into shell commands — avoids script injection.
     env:
       SINGBOX_REF: ${{ github.event.inputs.singbox_ref || 'v1.13.14' }}
+      TARGET_ARCH: ${{ github.event.inputs.target_arch || 'arm64' }}
     steps:
       - name: Clone sing-box
         run: git clone --depth 1 -b "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git
@@ -45,7 +53,7 @@ jobs:
       # `with_naive_outbound` tag — it pulls in a prebuilt libcronet.a that the
       # NDK linker rejects (unknown relocation 315). We don't use the naive
       # outbound, nor tailscale, so excluding them removes the problem entirely.
-      - name: Build libbox.aar (arm64)
+      - name: Build libbox.aar
         working-directory: sing-box
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
@@ -53,7 +61,7 @@ jobs:
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
           gomobile bind -v \
-            -target=android/arm64 \
+            -target="android/$TARGET_ARCH" \
             -androidapi 24 \
             -tags "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0" \
             -ldflags "-X github.com/sagernet/sing-box/constant.Version=$SINGBOX_REF -checklinkname=0 -s -w" \
@@ -63,6 +71,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: libbox-aar
+          name: libbox-aar-${{ env.TARGET_ARCH }}
           path: sing-box/libbox.aar
           if-no-files-found: error

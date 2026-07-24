@@ -21,6 +21,7 @@ import libbox.ConnectionOwner
 import libbox.InterfaceUpdateListener
 import libbox.Libbox
 import libbox.LocalDNSTransport
+import libbox.OverrideOptions
 import libbox.PlatformInterface
 import libbox.SetupOptions
 import libbox.StringIterator
