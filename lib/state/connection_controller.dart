@@ -6,6 +6,7 @@ import '../data/models/connection_stats.dart';
 import '../data/models/enums.dart';
 import '../data/models/proxy_node.dart';
 import '../engine/vpn_engine.dart';
+import '../engine/windows_engine.dart';
 import 'profile_controller.dart';
 import 'providers.dart';
 import 'settings_controller.dart';
@@ -58,6 +59,13 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
 
   /// The engine's most recent failure reason, shown on the Home error banner.
   String? get lastError => _engine.lastError;
+
+  /// Windows core logs for the in-app Logs screen (Android reads its own via a
+  /// platform channel).
+  String get diagnostics {
+    final e = _engine;
+    return e is WindowsProcessEngine ? e.logTail : '';
+  }
 
   /// Pings all nodes, then connects to the lowest-latency reachable one.
   Future<void> connectFastest() async {

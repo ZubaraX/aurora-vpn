@@ -51,6 +51,11 @@ class WindowsProcessEngine implements VpnEngine {
   @override
   String? get lastError => _lastError;
 
+  /// Captured sing-box stdout/stderr for the in-app Logs screen.
+  String get logTail => _logTail.isEmpty
+      ? 'Логи ядра появятся после подключения.'
+      : _logTail.join('\n');
+
   void _emit(ConnectionStatus s) {
     _status = s;
     _statusCtrl.add(s);

@@ -11,6 +11,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 /**
  * Hosts the Aurora method/event channels the Dart [AndroidVpnEngine] talks to:
@@ -39,8 +40,7 @@ class MainActivity : FlutterActivity() {
         val prev = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
             try {
-                val dir = getExternalFilesDir(null) ?: filesDir
-                java.io.File(dir, "aurora-crash.log").appendText(
+                java.io.File(filesDir, "aurora-crash.log").appendText(
                     "[uncaught ${thread.name}] ${e.javaClass.name}: ${e.message}\n" +
                         e.stackTraceToString() + "\n\n"
                 )
@@ -114,6 +114,33 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(messenger, "aurora/logs").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "read" -> result.success(readLogs())
+                "clear" -> {
+                    File(filesDir, "box.log").delete()
+                    File(filesDir, "aurora-crash.log").delete()
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun readLogs(): String {
+        val out = StringBuilder()
+        val crash = File(filesDir, "aurora-crash.log")
+        if (crash.exists() && crash.length() > 0) {
+            out.append("═══ CRASH / ERRORS ═══\n")
+            out.append(crash.readText().takeLast(20000)).append("\n\n")
+        }
+        val box = File(filesDir, "box.log")
+        if (box.exists() && box.length() > 0) {
+            out.append("═══ sing-box core ═══\n")
+            out.append(box.readText().takeLast(20000))
+        }
+        return if (out.isEmpty()) "Логи пока пусты. Нажмите подключение, чтобы записать." else out.toString()
     }
 
     private fun installApk(path: String?) {

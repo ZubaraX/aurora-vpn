@@ -10,6 +10,7 @@ import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/ui_bits.dart';
+import '../logs/logs_screen.dart';
 import '../update/update_dialog.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -153,18 +154,23 @@ class SettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 10),
               GlassCard(
-                onTap: () => _checkUpdate(context, ref),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-                child: Row(
+                padding: EdgeInsets.zero,
+                child: Column(
                   children: [
-                    const Icon(Icons.system_update_rounded,
-                        color: AppColors.auroraTeal, size: 20),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text('Проверить обновления',
-                          style: AppType.ui(14.5, weight: FontWeight.w700)),
+                    _NavRow(
+                      icon: Icons.system_update_rounded,
+                      title: 'Проверить обновления',
+                      onTap: () => _checkUpdate(context, ref),
                     ),
-                    const Icon(Icons.chevron_right_rounded, color: AppColors.mist),
+                    const Divider(
+                        height: 1, thickness: 1, color: AppColors.hairline, indent: 56),
+                    _NavRow(
+                      icon: Icons.article_outlined,
+                      title: 'Логи',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const LogsScreen()),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -205,6 +211,32 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       );
+}
+
+class _NavRow extends StatelessWidget {
+  const _NavRow({required this.icon, required this.title, required this.onTap});
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.auroraTeal, size: 20),
+            const SizedBox(width: 14),
+            Expanded(
+                child: Text(title, style: AppType.ui(14.5, weight: FontWeight.w700))),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.mist),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _RoutingCard extends StatelessWidget {

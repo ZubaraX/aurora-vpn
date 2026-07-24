@@ -82,21 +82,29 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         Thread({
             try {
                 val work = File(filesDir, "work").apply { mkdirs() }
+                // Send the core's own logs to a file the in-app Logs screen reads.
+                try { Libbox.redirectStderr(File(filesDir, "box.log").absolutePath) } catch (_: Throwable) {}
                 Libbox.setup(SetupOptions().apply {
                     basePath = filesDir.absolutePath
                     workingPath = work.absolutePath
                     tempPath = cacheDir.absolutePath
                 })
+                // OverrideOptions MUST be non-null — the Go side dereferences it
+                // unconditionally (nil → native panic → crash on connect).
+                val override = OverrideOptions().apply {
+                    includePackage = StringList(emptyList())
+                    excludePackage = StringList(emptyList())
+                }
                 val server = CommandServer(this, this)
                 server.start()
-                server.startOrReloadService(config, null)
+                server.startOrReloadService(config, override)
                 commandServer = server
                 connectedSince = System.currentTimeMillis()
                 emitStatus("connected")
                 main.post { startStatsPump() }
             } catch (t: Throwable) {
                 logError("start", t)
-                emitStatus("error")
+                emitStatus("error:" + (t.message ?: "не удалось запустить ядро"))
                 main.post { stopBox() }
             }
         }, "aurora-box").start()
@@ -105,8 +113,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun logError(where: String, t: Throwable) {
         try {
             android.util.Log.e("AuroraVPN", "[$where] ${t.message}", t)
-            val dir = getExternalFilesDir(null) ?: filesDir
-            File(dir, "aurora-crash.log").appendText(
+            File(filesDir, "aurora-crash.log").appendText(
                 "[$where] ${t.javaClass.simpleName}: ${t.message}\n" +
                     t.stackTraceToString() + "\n\n"
             )

@@ -22,13 +22,23 @@ class AndroidVpnEngine implements VpnEngine {
   final _statsCtrl = StreamController<ConnectionStats>.broadcast();
 
   ConnectionStatus _status = ConnectionStatus.disconnected;
+  String? _lastError;
   StreamSubscription? _statusSub;
   StreamSubscription? _statsSub;
 
   AndroidVpnEngine() {
     _statusSub = _statusEvents.receiveBroadcastStream().listen((e) {
+      final raw = '$e';
+      // The native side encodes failures as "error:<message>".
+      if (raw.startsWith('error')) {
+        final idx = raw.indexOf(':');
+        _lastError = idx >= 0 ? raw.substring(idx + 1).trim() : null;
+        _status = ConnectionStatus.error;
+        _statusCtrl.add(ConnectionStatus.error);
+        return;
+      }
       final s = ConnectionStatus.values
-          .firstWhere((v) => v.name == '$e', orElse: () => _status);
+          .firstWhere((v) => v.name == raw, orElse: () => _status);
       _status = s;
       _statusCtrl.add(s);
     }, onError: (_) {});
@@ -60,7 +70,7 @@ class AndroidVpnEngine implements VpnEngine {
   String get backendLabel => 'sing-box libbox · Android VpnService';
 
   @override
-  String? get lastError => null;
+  String? get lastError => _lastError;
 
   /// Probes whether the native side is wired up.
   static Future<bool> available() async {
