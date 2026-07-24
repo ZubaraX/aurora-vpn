@@ -1,6 +1,5 @@
 package com.auroravpn.aurora
 
-import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
@@ -45,6 +44,8 @@ class MainActivity : FlutterActivity() {
     private val VPN_REQUEST = 0x0A11
 
     private var pendingConfig: String? = null
+    private var usageEventsCursor = 0L
+    private val foregroundActivities = LinkedHashMap<String, Pair<String, Long>>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Record any uncaught crash to a readable file so failures on-device can
@@ -211,37 +212,55 @@ class MainActivity : FlutterActivity() {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    /** Package names that entered or remain in the foreground recently. */
+    /**
+     * The package whose activity is currently in the foreground.
+     *
+     * Keep a cursor between polls instead of rebuilding state from only the
+     * last 30 seconds. A trigger can stay open for hours, and its Wi-Fi/mobile
+     * profile must still change when the physical network changes.
+     */
     private fun runningPackages(): List<String> {
-        if (hasUsageAccess()) {
-            val usage = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            val now = System.currentTimeMillis()
-            val events = usage.queryEvents(now - 30_000, now)
-            val event = UsageEvents.Event()
-            val foreground = LinkedHashMap<String, Boolean>()
-            while (events.hasNextEvent()) {
-                events.getNextEvent(event)
-                val packageName = event.packageName ?: continue
-                when (event.eventType) {
-                    UsageEvents.Event.ACTIVITY_RESUMED -> foreground[packageName] = true
-                    UsageEvents.Event.ACTIVITY_PAUSED,
-                    UsageEvents.Event.ACTIVITY_STOPPED -> foreground[packageName] = false
-                }
-            }
-            return foreground.filterValues { it }.keys.toList()
+        if (!hasUsageAccess()) {
+            usageEventsCursor = 0L
+            foregroundActivities.clear()
+            return emptyList()
         }
 
-        // Limited fallback for devices where Usage Access has not been
-        // granted. Unlike the old installed-app list, this cannot fire every
-        // trigger immediately after Aurora starts.
-        val activity = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        return activity.runningAppProcesses.orEmpty()
-            .filter {
-                it.importance <=
-                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE
+        val usage = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val now = System.currentTimeMillis()
+        val begin = if (usageEventsCursor == 0L || usageEventsCursor > now) {
+            now - 6L * 60 * 60 * 1000
+        } else {
+            usageEventsCursor
+        }
+        val events = usage.queryEvents(begin, now)
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val packageName = event.packageName ?: continue
+            val activityKey = "$packageName:${event.className.orEmpty()}"
+            when (event.eventType) {
+                // MOVE_TO_FOREGROUND/BACKGROUND use the same values on API
+                // 24-28, while these names remain valid on current Android.
+                UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    foregroundActivities[activityKey] = packageName to event.timeStamp
+                }
+                UsageEvents.Event.ACTIVITY_PAUSED,
+                UsageEvents.Event.ACTIVITY_STOPPED -> {
+                    foregroundActivities.remove(activityKey)
+                }
+                UsageEvents.Event.DEVICE_SHUTDOWN,
+                UsageEvents.Event.DEVICE_STARTUP -> {
+                    foregroundActivities.clear()
+                }
             }
-            .flatMap { it.pkgList?.toList().orEmpty() }
-            .distinct()
+            usageEventsCursor = maxOf(usageEventsCursor, event.timeStamp + 1)
+        }
+        usageEventsCursor = maxOf(usageEventsCursor, now)
+        val foregroundPackage = foregroundActivities.values
+            .maxByOrNull { it.second }
+            ?.first
+        return foregroundPackage?.let(::listOf) ?: emptyList()
     }
 
     private fun hasUsageAccess(): Boolean {
@@ -282,24 +301,45 @@ class MainActivity : FlutterActivity() {
     private fun activeNetworkType(): String {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val active = cm.activeNetwork
-        val network = if (active != null &&
-            cm.getNetworkCapabilities(active)
-                ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false
-        ) {
-            active
-        } else {
-            cm.allNetworks.firstOrNull { candidate ->
-                val caps = cm.getNetworkCapabilities(candidate) ?: return@firstOrNull false
-                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            }
-        } ?: return "other"
+        fun usable(candidate: android.net.Network): Boolean {
+            val caps = cm.getNetworkCapabilities(candidate) ?: return false
+            return !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+        val network = cm.allNetworks
+            .filter(::usable)
+            .maxByOrNull { candidate ->
+                val caps = cm.getNetworkCapabilities(candidate) ?: return@maxByOrNull 0
+                var score = 0
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    score += 100
+                }
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+                ) {
+                    score += 20
+                }
+                score += when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 12
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 10
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 8
+                    else -> 1
+                }
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) {
+                    score += 2
+                }
+                // Keep Android's default as a small tie-breaker, but a valid
+                // connected Wi-Fi network still wins over cellular.
+                if (candidate == active) score += 4
+                score
+            } ?: return "other"
         val caps = cm.getNetworkCapabilities(network) ?: return "other"
-        return when {
+        val type = when {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
             caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
             else -> "other"
         }
+        return type
     }
 
     private fun launchTunnel() {

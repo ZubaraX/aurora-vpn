@@ -11,6 +11,11 @@ class EngineFactory {
   const EngineFactory._();
 
   static Future<VpnEngine> create() async {
+    // Lets x86 Android emulators exercise UI/trigger behavior even though the
+    // production libbox bundle is ARM64-only.
+    if (const bool.fromEnvironment('AURORA_SIMULATE')) {
+      return SimulatedEngine();
+    }
     if (Platform.isWindows) {
       final core = await WindowsProcessEngine.findCore();
       if (core != null) return WindowsProcessEngine(core);

@@ -21,7 +21,7 @@ import 'vpn_engine.dart';
 /// then read from the same API. Raising the TUN needs elevation and a free TUN
 /// slot; conflicts (another VPN already holding one) surface as a clear
 /// [lastError].
-class WindowsProcessEngine implements VpnEngine {
+class WindowsProcessEngine extends VpnEngine {
   WindowsProcessEngine(this._corePath);
 
   final String _corePath;

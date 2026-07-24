@@ -5,11 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
-import '../../data/models/enums.dart';
 import '../../state/connection_controller.dart';
 import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
 import '../apps/apps_screen.dart';
+import '../apps/trigger_app_monitor.dart';
 import '../home/home_screen.dart';
 import '../servers/servers_screen.dart';
 import '../settings/settings_screen.dart';
@@ -47,10 +47,7 @@ class _RootShellState extends ConsumerState<RootShell> {
   ];
 
   Timer? _triggerTimer;
-  Set<String> _prevTriggersRunning = {};
-  String? _lastTriggerApp;
-  String? _lastTriggerNetwork;
-  String? _lastTriggerProfile;
+  final _triggerMonitor = TriggerAppMonitor();
   bool _checkingTriggers = false;
 
   @override
@@ -58,10 +55,11 @@ class _RootShellState extends ConsumerState<RootShell> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeAutoConnect();
+      _checkTriggerApps();
       _checkForUpdate();
     });
     _triggerTimer = Timer.periodic(
-      const Duration(seconds: 6),
+      const Duration(seconds: 3),
       (_) => _checkTriggerApps(),
     );
   }
@@ -97,8 +95,7 @@ class _RootShellState extends ConsumerState<RootShell> {
       final settings = ref.read(settingsProvider);
       final triggers = settings.triggerApps;
       if (triggers.isEmpty) {
-        _prevTriggersRunning = {};
-        _lastTriggerApp = null;
+        _triggerMonitor.reset();
         return;
       }
       final inventory = ref.read(appInventoryProvider);
@@ -109,42 +106,18 @@ class _RootShellState extends ConsumerState<RootShell> {
       if (!mounted) return;
       final running = results[0] as Set<String>;
       final networkType = results[1] as String;
-      final active = <String>{
-        for (final id in triggers.keys)
-          if (running.contains(id.toLowerCase())) id,
-      };
-      final newly = active.difference(_prevTriggersRunning);
-      _prevTriggersRunning = active;
-
-      if (newly.isNotEmpty && !ref.read(connectionProvider).status.isActive) {
-        final appId = newly.first;
-        final profileId = settings.triggerProfileFor(appId, networkType);
-        _lastTriggerApp = appId;
-        _lastTriggerNetwork = networkType;
-        _lastTriggerProfile = profileId;
-        await ref.read(connectionProvider.notifier).connectToId(profileId);
-        return;
-      }
-
-      // If the phone moves between Wi-Fi and mobile data while a trigger
-      // session is active, switch to the profile chosen for the new network.
-      final appId = _lastTriggerApp;
-      if (appId != null &&
-          active.contains(appId) &&
-          networkType != _lastTriggerNetwork &&
-          ref.read(connectionProvider).status == ConnectionStatus.connected) {
-        final profileId = settings.triggerProfileFor(appId, networkType);
-        _lastTriggerNetwork = networkType;
-        if (profileId != _lastTriggerProfile) {
-          _lastTriggerProfile = profileId;
-          await ref.read(connectionProvider.notifier).connectToId(profileId);
-        }
-      }
-
-      if (appId != null && !active.contains(appId)) {
-        _lastTriggerApp = null;
-        _lastTriggerNetwork = null;
-        _lastTriggerProfile = null;
+      final connection = ref.read(connectionProvider);
+      final action = _triggerMonitor.evaluate(
+        settings: settings,
+        runningIds: running,
+        networkType: networkType,
+        connectionStatus: connection.status,
+        activeNodeId: settings.activeNodeId,
+      );
+      if (action != null) {
+        await ref
+            .read(connectionProvider.notifier)
+            .connectToId(action.profileId);
       }
     } finally {
       _checkingTriggers = false;

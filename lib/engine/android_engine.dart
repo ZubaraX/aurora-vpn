@@ -13,7 +13,7 @@ import 'vpn_engine.dart';
 /// android/app/src/main/kotlin/.../AuroraVpnService.kt). Dart generates the
 /// sing-box config; the platform side hands it to the bundled libbox core and
 /// owns the VpnService lifecycle and per-app allow/deny lists.
-class AndroidVpnEngine implements VpnEngine {
+class AndroidVpnEngine extends VpnEngine {
   static const _method = MethodChannel('aurora/vpn');
   static const _statusEvents = EventChannel('aurora/vpn/status');
   static const _statsEvents = EventChannel('aurora/vpn/stats');
@@ -101,6 +101,10 @@ class AndroidVpnEngine implements VpnEngine {
       'perApp': settings.perAppSelected.toList(),
     });
   }
+
+  @override
+  Future<void> replace(ProxyNode node, VpnSettings settings) =>
+      start(node, settings);
 
   @override
   Future<void> stop() async {

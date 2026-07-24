@@ -122,13 +122,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     for (final node in candidates) {
       if (operation != _operation) return;
       _ref.read(settingsProvider.notifier).setActiveNode(node.id);
-      if (_engine.status.isActive) {
-        await _engine.stop();
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-      }
-      if (operation != _operation) return;
-
-      await _engine.start(node, _ref.read(settingsProvider));
+      await _engine.replace(node, _ref.read(settingsProvider));
       final started = await _waitForConnected();
       if (operation != _operation) return;
       if (!started) return;
@@ -145,11 +139,13 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
         return;
       }
 
-      await _engine.stop();
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      // Keep the command server alive between candidates. Android reloads the
+      // existing libbox service in place; desktop engines perform their own
+      // orderly stop inside replace().
     }
 
     if (operation == _operation) {
+      await _engine.stop();
       state = state.copyWith(
         message: 'Серверы доступны по TCP, но не передают VPN-трафик',
       );

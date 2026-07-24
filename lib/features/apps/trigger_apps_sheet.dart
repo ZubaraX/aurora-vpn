@@ -103,7 +103,7 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
                     ],
                   ),
                   Text(
-                    'VPN подключится автоматически, когда откроется любое из выбранных приложений.',
+                    'При открытии приложения VPN подключится или переключится на выбранный для текущей сети сервер.',
                     style: AppType.ui(12.5, color: AppColors.mist),
                   ),
                   if (_hasTriggerAccess == false) ...[

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../data/models/connection_stats.dart';
 import '../data/models/enums.dart';
 import '../data/models/proxy_node.dart';
@@ -25,6 +27,32 @@ abstract class VpnEngine {
 
   Future<void> start(ProxyNode node, VpnSettings settings);
   Future<void> stop();
+
+  /// Replaces the active outbound with [node].
+  ///
+  /// Process-based engines need a full stop before starting the replacement.
+  /// Android overrides this to use libbox's in-process reload, which keeps the
+  /// single Clash controller alive and avoids racing a second listener on
+  /// 127.0.0.1:9090.
+  Future<void> replace(ProxyNode node, VpnSettings settings) async {
+    if (status.isActive) {
+      await stop();
+      if (status != ConnectionStatus.disconnected) {
+        try {
+          await statusStream
+              .firstWhere(
+                (value) =>
+                    value == ConnectionStatus.disconnected ||
+                    value == ConnectionStatus.error,
+              )
+              .timeout(const Duration(seconds: 10));
+        } on TimeoutException {
+          // Let start() surface a backend-specific error if shutdown stalled.
+        }
+      }
+    }
+    await start(node, settings);
+  }
 
   /// Verifies that the selected outbound can carry an HTTPS request.
   Future<bool> verifyConnection();

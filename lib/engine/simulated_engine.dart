@@ -14,7 +14,7 @@ import 'vpn_engine.dart';
 /// session timer, data counters — behaves exactly as it will against a real
 /// core. Swapping in [WindowsProcessEngine] or the Android bridge changes
 /// nothing above this layer.
-class SimulatedEngine implements VpnEngine {
+class SimulatedEngine extends VpnEngine {
   final _statusCtrl = StreamController<ConnectionStatus>.broadcast();
   final _statsCtrl = StreamController<ConnectionStats>.broadcast();
   final _rng = Random();

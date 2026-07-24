@@ -34,6 +34,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.Executors
 import libbox.NetworkInterface as LibboxNetworkInterface
 import libbox.NetworkInterfaceIterator as LibboxNetworkInterfaceIterator
 import libbox.Notification as LibboxNotification
@@ -62,6 +63,12 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private val main = Handler(Looper.getMainLooper())
+    private val coreExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "aurora-box")
+    }
+    @Volatile private var coreGeneration = 0L
+    @Volatile private var libboxReady = false
+    @Volatile
     private var commandServer: CommandServer? = null
     private var tun: ParcelFileDescriptor? = null
     private var connectedSince: Long = 0
@@ -83,50 +90,67 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         if (config == null) {
             emitStatus("error"); stopSelf(); return
         }
+        val generation = ++coreGeneration
         emitStatus("connecting")
         // Foreground promotion must happen promptly and on the main thread.
         try { startForegroundNotification() } catch (t: Throwable) { logError("fg", t) }
 
-        // The core is heavy (parses config, raises the TUN via openTun) — never
-        // run it on the main thread or the app ANRs / is killed on connect.
-        Thread({
+        // All core mutations use one worker. Profile switches reuse the same
+        // CommandServer and call startOrReloadService(), so a second Clash API
+        // listener can never race the existing 127.0.0.1:9090 listener.
+        coreExecutor.execute {
+            if (generation != coreGeneration) return@execute
+            var server = commandServer
             try {
+                android.util.Log.i("AuroraVPN", "core request $generation: preparing")
                 val work = File(filesDir, "work").apply { mkdirs() }
                 // Send the core's own logs to a file the in-app Logs screen reads.
                 try { Libbox.redirectStderr(File(filesDir, "box.log").absolutePath) } catch (_: Throwable) {}
-                Libbox.setup(SetupOptions().apply {
-                    basePath = filesDir.absolutePath
-                    workingPath = work.absolutePath
-                    tempPath = cacheDir.absolutePath
-                })
+                if (!libboxReady) {
+                    Libbox.setup(SetupOptions().apply {
+                        basePath = filesDir.absolutePath
+                        workingPath = work.absolutePath
+                        tempPath = cacheDir.absolutePath
+                    })
+                    libboxReady = true
+                    android.util.Log.i("AuroraVPN", "core request $generation: libbox ready")
+                }
                 // OverrideOptions MUST be non-null — the Go side dereferences it
                 // unconditionally (nil → native panic → crash on connect).
                 val override = OverrideOptions().apply {
                     includePackage = StringList(emptyList())
                     excludePackage = StringList(emptyList())
                 }
-                val server = CommandServer(this, this)
-                server.start()
+                val activeServer = server ?: CommandServer(this, this).also {
+                    it.start()
+                    server = it
+                    commandServer = it
+                    android.util.Log.i("AuroraVPN", "core request $generation: command server ready")
+                }
                 // Resolve the log file with Android's actual user/profile
                 // directory instead of hard-coding /data/user/0 in Dart.
                 val resolvedConfig = JSONObject(config).apply {
                     optJSONObject("log")
                         ?.put("output", File(filesDir, "box.log").absolutePath)
                 }.toString()
-                server.startOrReloadService(resolvedConfig, override)
-                commandServer = server
+                android.util.Log.i("AuroraVPN", "core request $generation: applying config")
+                activeServer.startOrReloadService(resolvedConfig, override)
+                if (generation != coreGeneration) return@execute
                 connectedSince = System.currentTimeMillis()
                 statsUploadTotal = 0
                 statsDownloadTotal = 0
                 statsSampleAt = 0
+                android.util.Log.i("AuroraVPN", "core request $generation: connected")
                 emitStatus("connected")
-                main.post { startStatsPump() }
+                main.post { startStatsPump(generation) }
             } catch (t: Throwable) {
+                if (generation != coreGeneration) return@execute
                 logError("start", t)
+                closeCoreResources(server)
                 emitStatus("error:" + (t.message ?: "не удалось запустить ядро"))
-                main.post { stopBox() }
+                main.post { finishStopped() }
             }
-        }, "aurora-box").start()
+        }
     }
 
     private fun logError(where: String, t: Throwable) {
@@ -140,11 +164,22 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun stopBox() {
+        val generation = ++coreGeneration
         emitStatus("disconnecting")
-        main.removeCallbacksAndMessages(null)
-        try { commandServer?.closeService() } catch (_: Throwable) {}
-        try { commandServer?.close() } catch (_: Throwable) {}
-        commandServer = null
+        coreExecutor.execute {
+            // A newer start supersedes a queued stop and reloads the existing
+            // service instead of tearing it down underneath the new request.
+            if (generation != coreGeneration) return@execute
+            closeCoreResources(commandServer)
+            emitStatus("disconnected")
+            main.post { finishStopped() }
+        }
+    }
+
+    private fun closeCoreResources(server: CommandServer?) {
+        if (commandServer === server) commandServer = null
+        try { server?.closeService() } catch (_: Throwable) {}
+        try { server?.close() } catch (_: Throwable) {}
         networkCallback?.let {
             try {
                 (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
@@ -155,7 +190,9 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         defaultNetwork = null
         try { tun?.close() } catch (_: Throwable) {}
         tun = null
-        emitStatus("disconnected")
+    }
+
+    private fun finishStopped() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -414,7 +451,9 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     // --- CommandServerHandler ------------------------------------------------
 
     override fun serviceReload() {}
-    override fun serviceStop() { main.post { stopBox() } }
+    override fun serviceStop() {
+        if (commandServer != null) main.post { stopBox() }
+    }
     override fun getSystemProxyStatus(): SystemProxyStatus =
         SystemProxyStatus().apply { available = false; enabled = false }
     override fun setSystemProxyEnabled(isEnabled: Boolean) {}
@@ -432,15 +471,17 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         while (it.hasNext()) block(it.next())
     }
 
-    private fun startStatsPump() {
+    private fun startStatsPump(generation: Long) {
         val tick = object : Runnable {
             override fun run() {
-                if (commandServer == null) return
+                if (generation != coreGeneration || commandServer == null) return
                 val nextTick = this
                 Thread({
                     val totals = readClashTotals()
                     main.post {
-                        if (commandServer == null) return@post
+                        if (generation != coreGeneration || commandServer == null) {
+                            return@post
+                        }
                         val now = System.currentTimeMillis()
                         val upload = totals?.first ?: statsUploadTotal
                         val download = totals?.second ?: statsDownloadTotal
@@ -527,8 +568,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun onRevoke() { main.post { stopBox() }; super.onRevoke() }
 
     override fun onDestroy() {
+        ++coreGeneration
         main.removeCallbacksAndMessages(null)
-        try { tun?.close() } catch (_: Throwable) {}
+        coreExecutor.execute { closeCoreResources(commandServer) }
+        coreExecutor.shutdown()
         super.onDestroy()
     }
 
