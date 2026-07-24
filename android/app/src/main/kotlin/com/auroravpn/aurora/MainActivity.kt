@@ -172,17 +172,19 @@ class MainActivity : FlutterActivity() {
      * accept TCP while every proxied request fails.
      */
     private fun probeProxy(): Boolean {
+        val port = AuroraVpnService.controllerPort()
+        if (port <= 0) return false
         val path = "/proxies/proxy/delay" +
             "?timeout=8000" +
             "&url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204"
         repeat(3) {
             try {
                 Socket().use { socket ->
-                    socket.connect(InetSocketAddress("127.0.0.1", 9090), 2000)
+                    socket.connect(InetSocketAddress("127.0.0.1", port), 2000)
                     socket.soTimeout = 10000
                     val writer = socket.getOutputStream().bufferedWriter()
                     writer.write("GET $path HTTP/1.1\r\n")
-                    writer.write("Host: 127.0.0.1:9090\r\n")
+                    writer.write("Host: 127.0.0.1:$port\r\n")
                     writer.write("Connection: close\r\n\r\n")
                     writer.flush()
                     val status = socket.getInputStream().bufferedReader().readLine()

@@ -25,6 +25,10 @@ class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.voidBg,
       canvasColor: AppColors.voidBg,
+      // Use the CPU-backed ripple. Some release APK builds do not package
+      // Flutter's optional ink_sparkle shader, which otherwise produces an
+      // unhandled exception on the first tap.
+      splashFactory: InkRipple.splashFactory,
       splashColor: AppColors.auroraTeal.withValues(alpha: 0.06),
       highlightColor: Colors.transparent,
       dividerColor: AppColors.hairline,
@@ -57,18 +61,24 @@ class AppTheme {
         ),
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((s) =>
-            s.contains(WidgetState.selected) ? AppColors.voidBg : AppColors.mist),
-        trackColor: WidgetStateProperty.resolveWith((s) => s
-                .contains(WidgetState.selected)
-            ? AppColors.auroraTeal
-            : AppColors.slateHi),
+        thumbColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected)
+              ? AppColors.voidBg
+              : AppColors.mist,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected)
+              ? AppColors.auroraTeal
+              : AppColors.slateHi,
+        ),
         trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
       ),
-      pageTransitionsTheme: const PageTransitionsTheme(builders: {
-        TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
-        TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-      }),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
     );
   }
 }

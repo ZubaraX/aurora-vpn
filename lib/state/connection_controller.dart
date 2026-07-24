@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/models/connection_stats.dart';
 import '../data/models/enums.dart';
 import '../data/models/proxy_node.dart';
+import '../engine/reconnect_policy.dart';
 import '../engine/vpn_engine.dart';
 import '../engine/windows_engine.dart';
 import 'profile_controller.dart';
@@ -42,6 +43,11 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     : super(const ConnectionUiState()) {
     _statusSub = _engine.statusStream.listen((s) {
       state = state.copyWith(status: s);
+      if ((s == ConnectionStatus.error || s == ConnectionStatus.disconnected) &&
+          _wantsConnection &&
+          !_transitioning) {
+        _scheduleReconnect();
+      }
     });
     _statsSub = _engine.statsStream.listen((s) {
       state = state.copyWith(stats: s);
@@ -53,6 +59,11 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   StreamSubscription? _statusSub;
   StreamSubscription? _statsSub;
   int _operation = 0;
+  final _reconnectPolicy = ReconnectPolicy();
+  Timer? _reconnectTimer;
+  bool _wantsConnection = false;
+  bool _transitioning = false;
+  String? _desiredNodeId;
 
   bool get isRealCore => _engine.isRealCore;
   String get backendLabel => _engine.backendLabel;
@@ -93,11 +104,11 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
       state = state.copyWith(message: 'Добавьте сервер или подписку');
       return;
     }
-    await _connectVerified(node);
+    await _connectRequested(node);
   }
 
   Future<void> connectTo(ProxyNode node) async {
-    await _connectVerified(node);
+    await _connectRequested(node);
   }
 
   /// Connects to a specific node by id; empty/unknown id falls back to the
@@ -110,46 +121,119 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   }
 
   Future<void> disconnect() {
+    _wantsConnection = false;
+    _desiredNodeId = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectPolicy.reset();
     _operation++;
+    _transitioning = false;
     return _engine.stop();
+  }
+
+  Future<void> _connectRequested(ProxyNode node) async {
+    if (_desiredNodeId == node.id &&
+        (state.status == ConnectionStatus.connecting ||
+            state.status == ConnectionStatus.connected)) {
+      return;
+    }
+    _wantsConnection = true;
+    _desiredNodeId = node.id;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectPolicy.reset();
+    await _connectVerified(node);
   }
 
   Future<void> _connectVerified(ProxyNode preferred) async {
     final operation = ++_operation;
+    _transitioning = true;
     state = state.copyWith(clearMessage: true);
     final candidates = _fallbackCandidates(preferred).take(4);
 
-    for (final node in candidates) {
-      if (operation != _operation) return;
-      _ref.read(settingsProvider.notifier).setActiveNode(node.id);
-      await _engine.replace(node, _ref.read(settingsProvider));
-      final started = await _waitForConnected();
-      if (operation != _operation) return;
-      if (!started) return;
-
-      final reachable = await _engine.verifyConnection();
-      if (operation != _operation) return;
-      if (reachable) {
-        if (node.id != preferred.id) {
-          state = state.copyWith(
-            message:
-                'Выбранный сервер не передавал трафик — подключён резервный',
-          );
+    try {
+      for (final node in candidates) {
+        if (operation != _operation) return;
+        _ref.read(settingsProvider.notifier).setActiveNode(node.id);
+        await _engine.replace(node, _ref.read(settingsProvider));
+        final started = await _waitForConnected();
+        if (operation != _operation) return;
+        if (!started) {
+          // A native start can occasionally stall without producing an error
+          // event (for example during a radio handover). Tear that half-start
+          // down so the bounded reconnect policy can make a clean attempt.
+          if (_engine.status == ConnectionStatus.connecting) {
+            await _engine.stop();
+          }
+          return;
         }
-        return;
+
+        final reachable = await _engine.verifyConnection();
+        if (operation != _operation) return;
+        if (reachable) {
+          _desiredNodeId = node.id;
+          _reconnectPolicy.reset();
+          _reconnectTimer?.cancel();
+          _reconnectTimer = null;
+          if (node.id != preferred.id) {
+            state = state.copyWith(
+              message:
+                  'Выбранный сервер не передавал трафик — подключён резервный',
+            );
+          }
+          return;
+        }
+
+        // Keep the command server alive between candidates. Android reloads the
+        // existing libbox service in place; desktop engines perform their own
+        // orderly stop inside replace().
       }
 
-      // Keep the command server alive between candidates. Android reloads the
-      // existing libbox service in place; desktop engines perform their own
-      // orderly stop inside replace().
+      if (operation == _operation) {
+        await _engine.stop();
+        state = state.copyWith(
+          message: 'Серверы доступны по TCP, но не передают VPN-трафик',
+        );
+      }
+    } finally {
+      if (operation == _operation) {
+        _transitioning = false;
+        if (_wantsConnection &&
+            (state.status == ConnectionStatus.error ||
+                state.status == ConnectionStatus.disconnected)) {
+          _scheduleReconnect();
+        }
+      }
     }
+  }
 
-    if (operation == _operation) {
-      await _engine.stop();
-      state = state.copyWith(
-        message: 'Серверы доступны по TCP, но не передают VPN-трафик',
-      );
+  void _scheduleReconnect() {
+    if (!_wantsConnection ||
+        _transitioning ||
+        _reconnectTimer?.isActive == true) {
+      return;
     }
+    final delay = _reconnectPolicy.nextDelay();
+    if (delay == null) {
+      _wantsConnection = false;
+      state = state.copyWith(
+        message: 'Автопереподключение не удалось — попробуйте другой сервер',
+      );
+      return;
+    }
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
+      if (!_wantsConnection || state.status.isActive) return;
+      final desired = _desiredNodeId;
+      final node = desired == null
+          ? _resolveNode()
+          : _ref.read(profileProvider).nodeById(desired) ?? _resolveNode();
+      if (node == null) {
+        _wantsConnection = false;
+        return;
+      }
+      unawaited(_connectVerified(node));
+    });
   }
 
   Future<bool> _waitForConnected() async {
@@ -210,6 +294,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
     _statusSub?.cancel();
     _statsSub?.cancel();
     super.dispose();

@@ -13,6 +13,11 @@ class AuroraApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       themeMode: ThemeMode.dark,
+      // Avoid the optional stretch_effect shader on Android. Scrolling keeps
+      // the same physics; only the decorative edge deformation is disabled.
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        overscroll: false,
+      ),
       home: const RootShell(),
     );
   }

@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import io.flutter.plugin.common.EventChannel
 import libbox.CommandServer
 import libbox.CommandServerHandler
@@ -32,7 +33,9 @@ import libbox.TunOptions
 import libbox.WIFIState
 import org.json.JSONObject
 import java.io.File
+import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.Executors
 import libbox.NetworkInterface as LibboxNetworkInterface
@@ -60,6 +63,17 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         @JvmStatic var statusSink: EventChannel.EventSink? = null
         @JvmStatic var statsSink: EventChannel.EventSink? = null
+
+        // The Clash API port is deliberately generation-specific. libbox
+        // closes the old instance synchronously during a reload, but its HTTP
+        // listener can remain bound for a short time. Reusing 9090 therefore
+        // makes rapid reconnects fail with "address already in use".
+        @Volatile private var publishedControllerPort = 0
+        @Volatile private var libboxInitialized = false
+        private val libboxSetupLock = Any()
+
+        @JvmStatic
+        fun controllerPort(): Int = publishedControllerPort
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -67,9 +81,11 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         Thread(task, "aurora-box")
     }
     @Volatile private var coreGeneration = 0L
-    @Volatile private var libboxReady = false
     @Volatile
     private var commandServer: CommandServer? = null
+    @Volatile private var requestedConfig: String? = null
+    @Volatile private var coreConnected = false
+    private var controllerPort = 0
     private var tun: ParcelFileDescriptor? = null
     private var connectedSince: Long = 0
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -83,13 +99,24 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             ACTION_START -> startBox(intent.getStringExtra(EXTRA_CONFIG))
             ACTION_STOP -> stopBox()
         }
-        return START_STICKY
+        // A killed process cannot recover the in-memory config from a null
+        // sticky intent. Let Dart/auto-connect issue a complete fresh request.
+        return START_NOT_STICKY
     }
 
     private fun startBox(config: String?) {
         if (config == null) {
             emitStatus("error"); stopSelf(); return
         }
+        // A double tap or two trigger polls can deliver the same request while
+        // the first one is still starting. Coalesce it instead of reloading a
+        // healthy (or not-yet-healthy) core.
+        if (config == requestedConfig) {
+            emitStatus(if (coreConnected) "connected" else "connecting")
+            return
+        }
+        requestedConfig = config
+        coreConnected = false
         val generation = ++coreGeneration
         emitStatus("connecting")
         // Foreground promotion must happen promptly and on the main thread.
@@ -106,14 +133,21 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 val work = File(filesDir, "work").apply { mkdirs() }
                 // Send the core's own logs to a file the in-app Logs screen reads.
                 try { Libbox.redirectStderr(File(filesDir, "box.log").absolutePath) } catch (_: Throwable) {}
-                if (!libboxReady) {
-                    Libbox.setup(SetupOptions().apply {
-                        basePath = filesDir.absolutePath
-                        workingPath = work.absolutePath
-                        tempPath = cacheDir.absolutePath
-                    })
-                    libboxReady = true
-                    android.util.Log.i("AuroraVPN", "core request $generation: libbox ready")
+                if (!libboxInitialized) {
+                    synchronized(libboxSetupLock) {
+                        if (!libboxInitialized) {
+                            Libbox.setup(SetupOptions().apply {
+                                basePath = filesDir.absolutePath
+                                workingPath = work.absolutePath
+                                tempPath = cacheDir.absolutePath
+                            })
+                            libboxInitialized = true
+                            android.util.Log.i(
+                                "AuroraVPN",
+                                "core request $generation: libbox ready"
+                            )
+                        }
+                    }
                 }
                 // OverrideOptions MUST be non-null — the Go side dereferences it
                 // unconditionally (nil → native panic → crash on connect).
@@ -127,15 +161,12 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     commandServer = it
                     android.util.Log.i("AuroraVPN", "core request $generation: command server ready")
                 }
-                // Resolve the log file with Android's actual user/profile
-                // directory instead of hard-coding /data/user/0 in Dart.
-                val resolvedConfig = JSONObject(config).apply {
-                    optJSONObject("log")
-                        ?.put("output", File(filesDir, "box.log").absolutePath)
-                }.toString()
                 android.util.Log.i("AuroraVPN", "core request $generation: applying config")
-                activeServer.startOrReloadService(resolvedConfig, override)
+                val newControllerPort = applyConfig(activeServer, config, override)
                 if (generation != coreGeneration) return@execute
+                controllerPort = newControllerPort
+                publishedControllerPort = newControllerPort
+                coreConnected = true
                 connectedSince = System.currentTimeMillis()
                 statsUploadTotal = 0
                 statsDownloadTotal = 0
@@ -145,12 +176,71 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 main.post { startStatsPump(generation) }
             } catch (t: Throwable) {
                 if (generation != coreGeneration) return@execute
+                requestedConfig = null
+                coreConnected = false
                 logError("start", t)
                 closeCoreResources(server)
                 emitStatus("error:" + (t.message ?: "не удалось запустить ядро"))
-                main.post { finishStopped() }
+                main.post { finishStopped(generation) }
             }
         }
+    }
+
+    private fun applyConfig(
+        server: CommandServer,
+        config: String,
+        override: OverrideOptions
+    ): Int {
+        var lastFailure: Throwable? = null
+        for (attempt in 1..3) {
+            val candidatePort = findFreeControllerPort()
+            val resolvedConfig = JSONObject(config).apply {
+                val log = optJSONObject("log") ?: JSONObject().also { put("log", it) }
+                log.put("output", File(filesDir, "box.log").absolutePath)
+                val experimental = optJSONObject("experimental")
+                    ?: JSONObject().also { put("experimental", it) }
+                val clash = experimental.optJSONObject("clash_api")
+                    ?: JSONObject().also { experimental.put("clash_api", it) }
+                clash.put("external_controller", "127.0.0.1:$candidatePort")
+            }.toString()
+            try {
+                server.startOrReloadService(resolvedConfig, override)
+                return candidatePort
+            } catch (t: Throwable) {
+                lastFailure = t
+                if (!isAddressInUse(t) || attempt == 3) throw t
+                android.util.Log.w(
+                    "AuroraVPN",
+                    "Clash API port $candidatePort raced during reload; retry $attempt/3",
+                    t
+                )
+                try {
+                    Thread.sleep(150L * attempt)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw t
+                }
+            }
+        }
+        throw lastFailure ?: IllegalStateException("Не удалось запустить Clash API")
+    }
+
+    private fun findFreeControllerPort(): Int =
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use {
+            it.reuseAddress = false
+            it.localPort
+        }
+
+    private fun isAddressInUse(t: Throwable): Boolean {
+        var current: Throwable? = t
+        while (current != null) {
+            val message = current.message.orEmpty().lowercase()
+            if ("address already in use" in message || "bind: address" in message) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 
     private fun logError(where: String, t: Throwable) {
@@ -165,6 +255,8 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private fun stopBox() {
         val generation = ++coreGeneration
+        requestedConfig = null
+        coreConnected = false
         emitStatus("disconnecting")
         coreExecutor.execute {
             // A newer start supersedes a queued stop and reloads the existing
@@ -172,12 +264,21 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             if (generation != coreGeneration) return@execute
             closeCoreResources(commandServer)
             emitStatus("disconnected")
-            main.post { finishStopped() }
+            main.post { finishStopped(generation) }
         }
     }
 
     private fun closeCoreResources(server: CommandServer?) {
         if (commandServer === server) commandServer = null
+        val closingPort = controllerPort
+        controllerPort = 0
+        if (publishedControllerPort == closingPort) publishedControllerPort = 0
+        requestedConfig = null
+        coreConnected = false
+        // Release the Android VPN descriptor before waiting for the Go service
+        // to finish, matching the official sing-box Android lifecycle.
+        try { tun?.close() } catch (_: Throwable) {}
+        tun = null
         try { server?.closeService() } catch (_: Throwable) {}
         try { server?.close() } catch (_: Throwable) {}
         networkCallback?.let {
@@ -188,11 +289,12 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
         networkCallback = null
         defaultNetwork = null
-        try { tun?.close() } catch (_: Throwable) {}
-        tun = null
     }
 
-    private fun finishStopped() {
+    private fun finishStopped(generation: Long) {
+        // A new ACTION_START may arrive after the worker posted this callback.
+        // Never let an old stop/error callback tear down that newer request.
+        if (generation != coreGeneration) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -244,7 +346,9 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         val pfd = builder.establish()
             ?: throw IllegalStateException("VpnService.establish() returned null")
+        val previousTun = tun
         tun = pfd
+        try { previousTun?.close() } catch (_: Throwable) {}
         return pfd.fd
     }
 
@@ -254,14 +358,29 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         protect(fd)
     }
 
-    override fun useProcFS(): Boolean = false
+    override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
 
     override fun findConnectionOwner(
         ipProto: Int, srcIp: String, srcPort: Int, destIp: String, destPort: Int
     ): ConnectionOwner {
-        // Not needed: Android per-app routing uses include/exclude package, not
-        // process rules.
-        throw UnsupportedOperationException("process lookup unsupported")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            throw UnsupportedOperationException("Android connection lookup requires API 29")
+        }
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val uid = cm.getConnectionOwnerUid(
+            ipProto,
+            InetSocketAddress(srcIp, srcPort),
+            InetSocketAddress(destIp, destPort)
+        )
+        if (uid == Process.INVALID_UID) {
+            throw IllegalStateException("Android connection owner not found")
+        }
+        val packages = packageManager.getPackagesForUid(uid)?.toList().orEmpty()
+        return ConnectionOwner().apply {
+            userId = uid
+            userName = packages.firstOrNull().orEmpty()
+            setAndroidPackageNames(StringList(packages))
+        }
     }
 
     override fun getInterfaces(): LibboxNetworkInterfaceIterator {
@@ -517,13 +636,15 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun readClashTotals(): Pair<Long, Long>? {
+        val port = controllerPort
+        if (port <= 0) return null
         return try {
             Socket().use { socket ->
-                socket.connect(InetSocketAddress("127.0.0.1", 9090), 1000)
+                socket.connect(InetSocketAddress("127.0.0.1", port), 1000)
                 socket.soTimeout = 3000
                 val writer = socket.getOutputStream().bufferedWriter()
                 writer.write("GET /connections HTTP/1.1\r\n")
-                writer.write("Host: 127.0.0.1:9090\r\n")
+                writer.write("Host: 127.0.0.1:$port\r\n")
                 writer.write("Connection: close\r\n\r\n")
                 writer.flush()
                 val response = socket.getInputStream().bufferedReader().readText()
@@ -569,6 +690,9 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun onDestroy() {
         ++coreGeneration
+        requestedConfig = null
+        coreConnected = false
+        if (publishedControllerPort == controllerPort) publishedControllerPort = 0
         main.removeCallbacksAndMessages(null)
         coreExecutor.execute { closeCoreResources(commandServer) }
         coreExecutor.shutdown()
