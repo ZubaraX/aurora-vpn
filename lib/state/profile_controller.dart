@@ -102,14 +102,20 @@ class ProfileController extends StateNotifier<ProfileState> {
   }
 
   void _restore() {
-    final subs = _storage
-        .readList(Storage.kSubscriptions)
-        .map(Subscription.fromJson)
-        .toList();
-    final nodes = _storage
-        .readList(Storage.kNodes)
-        .map(ProxyNode.fromJson)
-        .toList();
+    // Parse each entry defensively so a single stale/incompatible record from
+    // an older build can't crash startup into a white screen.
+    final subs = <Subscription>[];
+    for (final j in _storage.readList(Storage.kSubscriptions)) {
+      try {
+        subs.add(Subscription.fromJson(j));
+      } catch (_) {}
+    }
+    final nodes = <ProxyNode>[];
+    for (final j in _storage.readList(Storage.kNodes)) {
+      try {
+        nodes.add(ProxyNode.fromJson(j));
+      } catch (_) {}
+    }
     state = state.copyWith(subscriptions: subs, nodes: nodes);
   }
 

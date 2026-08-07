@@ -39,9 +39,19 @@ jobs:
           Expand-Archive wintun.zip -DestinationPath wt -Force
           Copy-Item "wt/wintun/bin/amd64/wintun.dll" "$rel/wintun.dll"
           Compress-Archive -Path "$rel/*" -DestinationPath "aurora-windows-x64.zip" -Force
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $ver = "${{ github.ref_name }}" -replace '^v',''
+          if ($ver -notmatch '^\d') { $ver = '1.1.1' }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" "windows\installer\aurora.iss"
+          Get-ChildItem dist
       - uses: softprops/action-gh-release@v2
         with:
-          files: aurora-windows-x64.zip
+          files: |
+            aurora-windows-x64.zip
+            dist/Aurora-Setup-*.exe
           fail_on_unmatched_files: true
 
   android:

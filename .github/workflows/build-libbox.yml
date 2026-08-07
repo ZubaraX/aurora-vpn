@@ -60,8 +60,10 @@ jobs:
           NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
+          # Universal build: both arm64 (phones) and amd64 (x86_64 emulators /
+          # devices) in one AAR, so the tunnel core runs everywhere.
           gomobile bind -v \
-            -target="android/$TARGET_ARCH" \
+            -target="android/arm64,android/amd64" \
             -androidapi 24 \
             -tags "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0" \
             -ldflags "-X github.com/sagernet/sing-box/constant.Version=$SINGBOX_REF -checklinkname=0 -s -w" \
@@ -71,6 +73,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: libbox-aar-${{ env.TARGET_ARCH }}
+          name: libbox-aar
           path: sing-box/libbox.aar
           if-no-files-found: error

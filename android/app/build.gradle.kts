@@ -32,8 +32,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // The bundled sing-box core (libbox.aar) is arm64 only.
-        ndk { abiFilters += "arm64-v8a" }
+        // The bundled sing-box core (libbox.aar) ships arm64 + x86_64, so the
+        // app runs on phones and on x86_64 emulators/devices.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
     signingConfigs {

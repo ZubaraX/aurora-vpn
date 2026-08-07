@@ -116,12 +116,8 @@ class VpnSettings {
     perAppMode: _enum(PerAppMode.values, j['perAppMode'], PerAppMode.off),
     perAppSelected: ((j['perAppSelected'] as List?)?.cast<String>() ?? const [])
         .toSet(),
-    triggerApps: ((j['triggerApps'] as Map?) ?? const {}).map(
-      (k, v) => MapEntry('$k', '$v'),
-    ),
-    triggerWifiProfiles: ((j['triggerWifiProfiles'] as Map?) ?? const {}).map(
-      (k, v) => MapEntry('$k', '$v'),
-    ),
+    triggerApps: _stringMap(j['triggerApps']),
+    triggerWifiProfiles: _stringMap(j['triggerWifiProfiles']),
     triggerMobileProfiles: _mobileProfiles(j['triggerMobileProfiles']),
     tunMode: j['tunMode'] as bool? ?? true,
     tunStack: _enum(TunStack.values, j['tunStack'], TunStack.mixed),
@@ -178,5 +174,17 @@ class VpnSettings {
       if (v.name == name) return v;
     }
     return fallback;
+  }
+
+  /// Reads a {appId: nodeId} map, tolerating the legacy format where trigger
+  /// apps were stored as a plain list of ids (migrated to empty profiles).
+  static Map<String, String> _stringMap(Object? raw) {
+    if (raw is Map) {
+      return raw.map((k, v) => MapEntry('$k', '$v'));
+    }
+    if (raw is List) {
+      return {for (final e in raw) '$e': ''};
+    }
+    return {};
   }
 }

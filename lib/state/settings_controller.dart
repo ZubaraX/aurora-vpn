@@ -14,7 +14,14 @@ class SettingsController extends StateNotifier<VpnSettings> {
 
   static VpnSettings _load(Storage s) {
     final map = s.readMap(Storage.kSettings);
-    return map == null ? const VpnSettings() : VpnSettings.fromJson(map);
+    if (map == null) return const VpnSettings();
+    try {
+      return VpnSettings.fromJson(map);
+    } catch (_) {
+      // A settings file from an older/incompatible build must never crash the
+      // app into a white screen — fall back to defaults.
+      return const VpnSettings();
+    }
   }
 
   void _commit(VpnSettings next) {
