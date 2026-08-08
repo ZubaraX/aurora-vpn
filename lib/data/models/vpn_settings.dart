@@ -138,10 +138,11 @@ class VpnSettings {
         .toSet(),
     collapsedSubs: ((j['collapsedSubs'] as List?)?.cast<String>() ?? const [])
         .toSet(),
-    domainZoneRules: _stringMap(j['domainZoneRules']),
-    triggerApps: _stringMap(j['triggerApps']),
-    triggerWifiProfiles: _stringMap(j['triggerWifiProfiles']),
-    triggerMobileProfiles: _mobileProfiles(j['triggerMobileProfiles']),
+    domainZoneRules: _migValues(_stringMap(j['domainZoneRules'])),
+    triggerApps: _migValues(_stringMap(j['triggerApps'])),
+    triggerWifiProfiles: _migValues(_stringMap(j['triggerWifiProfiles'])),
+    triggerMobileProfiles: _mobileProfiles(j['triggerMobileProfiles'])
+        .map((k, v) => MapEntry(k, v.map(migrateNodeId).toList())),
     tunMode: j['tunMode'] as bool? ?? true,
     tunStack: _enum(TunStack.values, j['tunStack'], TunStack.mixed),
     bypassLan: j['bypassLan'] as bool? ?? true,
@@ -151,7 +152,9 @@ class VpnSettings {
     dnsDirect: j['dnsDirect'] as String? ?? 'https://1.1.1.1/dns-query',
     autoConnect: j['autoConnect'] as bool? ?? false,
     killSwitch: j['killSwitch'] as bool? ?? true,
-    activeNodeId: j['activeNodeId'] as String?,
+    activeNodeId: j['activeNodeId'] == null
+        ? null
+        : migrateNodeId(j['activeNodeId'] as String),
     themeMode: _enum(ThemeMode.values, j['themeMode'], ThemeMode.dark),
     locale: j['locale'] as String? ?? 'ru',
   );
@@ -197,6 +200,21 @@ class VpnSettings {
       );
     });
   }
+
+  /// Migrates a persisted node id from the short-lived v1.6.0 scheme
+  /// (`<subId>_<hash>_<index>`, three underscore-parts) back to the stable
+  /// scheme (`<hash>_<index>`, two parts) so trigger profiles / zone rules /
+  /// the active selection saved under v1.6.0 keep matching their node. Values
+  /// that are not node ids (`direct`/`proxy`/`block`, empty, already 2-part)
+  /// are returned unchanged. Idempotent.
+  static String migrateNodeId(String id) {
+    if (id.isEmpty) return id;
+    final parts = id.split('_');
+    return parts.length >= 3 ? parts.sublist(parts.length - 2).join('_') : id;
+  }
+
+  static Map<String, String> _migValues(Map<String, String> m) =>
+      m.map((k, v) => MapEntry(k, migrateNodeId(v)));
 
   static T _enum<T extends Enum>(List<T> values, Object? name, T fallback) {
     for (final v in values) {

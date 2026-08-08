@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/update/update_service.dart';
 import '../../core/utils/country_flags.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/enums.dart';
@@ -14,6 +15,7 @@ import '../../state/settings_controller.dart';
 import '../../widgets/flag_badge.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/ui_bits.dart';
+import '../update/update_dialog.dart';
 import 'aurora_orb.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -25,6 +27,7 @@ class HomeScreen extends ConsumerWidget {
     final node = ref.watch(activeNodeProvider);
     final settings = ref.watch(settingsProvider);
     final controller = ref.read(connectionProvider.notifier);
+    final update = ref.watch(updateAvailableProvider);
 
     ref.listen(connectionProvider.select((s) => s.message), (_, msg) {
       if (msg != null) {
@@ -39,33 +42,44 @@ class HomeScreen extends ConsumerWidget {
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+          child: Column(
             children: [
-              _Header(backend: controller.backendLabel, realCore: controller.isRealCore),
-              const SizedBox(height: 24),
-              Center(
-                child: AuroraOrb(
-                  status: conn.status,
-                  title: conn.status.title,
-                  subtitle: _orbSubtitle(conn.status, node),
-                  onTap: controller.toggle,
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                  children: [
+                    _Header(backend: controller.backendLabel, realCore: controller.isRealCore),
+                    const SizedBox(height: 24),
+                    Center(
+                      child: AuroraOrb(
+                        status: conn.status,
+                        title: conn.status.title,
+                        subtitle: _orbSubtitle(conn.status, node),
+                        onTap: controller.toggle,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    if (conn.status == ConnectionStatus.error)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: _ErrorBanner(
+                          message: controller.lastError,
+                          onRetry: controller.connect,
+                        ),
+                      ),
+                    _ServerChip(node: node),
+                    const SizedBox(height: 14),
+                    _StatsPanel(status: conn.status, stats: conn.stats, node: node),
+                    const SizedBox(height: 14),
+                    _RoutingRow(mode: settings.routingMode),
+                  ],
                 ),
               ),
-              const SizedBox(height: 24),
-              if (conn.status == ConnectionStatus.error)
+              if (update != null)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: _ErrorBanner(
-                    message: controller.lastError,
-                    onRetry: controller.connect,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: _UpdateBanner(info: update),
                 ),
-              _ServerChip(node: node),
-              const SizedBox(height: 14),
-              _StatsPanel(status: conn.status, stats: conn.stats, node: node),
-              const SizedBox(height: 14),
-              _RoutingRow(mode: settings.routingMode),
             ],
           ),
         ),
@@ -81,6 +95,64 @@ class HomeScreen extends ConsumerWidget {
         ConnectionStatus.disconnected =>
           node == null ? 'выберите сервер' : 'нажмите, чтобы подключиться',
       };
+}
+
+/// Persistent banner shown at the bottom of the home screen when a newer
+/// release is available, so the user notices and can update in one tap.
+class _UpdateBanner extends StatelessWidget {
+  const _UpdateBanner({required this.info});
+  final UpdateInfo info;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => showUpdateDialog(context, info),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: AppColors.auroraGradient,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.auroraViolet.withValues(alpha: 0.35),
+              blurRadius: 20,
+              spreadRadius: -4,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.system_update_rounded, color: AppColors.voidBg, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Доступно обновление',
+                      style: AppType.ui(14, weight: FontWeight.w800,
+                          color: AppColors.voidBg)),
+                  Text('Версия ${info.version} · нажмите, чтобы обновить',
+                      style: AppType.ui(11.5,
+                          color: AppColors.voidBg.withValues(alpha: 0.8))),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.voidBg.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('Обновить',
+                  style: AppType.ui(12.5, weight: FontWeight.w800,
+                      color: AppColors.voidBg)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Header extends StatelessWidget {

@@ -2,6 +2,31 @@ import 'package:aurora/data/models/vpn_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('migrates v1.6.0 subId-scoped node ids back to the stable id', () {
+    // v1.6.0 stored ids as <subId>_<hash>_<index>; the stable id is
+    // <hash>_<index>. fromJson must strip the subId so saved trigger
+    // profiles / zone rules / active selection keep matching their node.
+    final json = {
+      'activeNodeId': 'sub1_abc123_0',
+      'triggerApps': {'com.example.app': 'sub1_abc123_0'},
+      'triggerWifiProfiles': {'com.example.app': 'sub1_abc123_0'},
+      'triggerMobileProfiles': {
+        'com.example.app': ['sub1_abc123_0', 'sub1_def456_1'],
+      },
+      'domainZoneRules': {'ru': 'sub1_abc123_0', 'com': 'direct'},
+    };
+    final s = VpnSettings.fromJson(json);
+    expect(s.activeNodeId, 'abc123_0');
+    expect(s.triggerApps['com.example.app'], 'abc123_0');
+    expect(s.triggerWifiProfiles['com.example.app'], 'abc123_0');
+    expect(s.triggerMobileProfiles['com.example.app'], ['abc123_0', 'def456_1']);
+    expect(s.domainZoneRules['ru'], 'abc123_0');
+    // Non-node targets and already-stable ids are untouched / idempotent.
+    expect(s.domainZoneRules['com'], 'direct');
+    expect(VpnSettings.migrateNodeId('abc123_0'), 'abc123_0');
+    expect(VpnSettings.migrateNodeId('direct'), 'direct');
+  });
+
   test('trigger profiles are selected by upstream network type', () {
     const settings = VpnSettings(
       triggerApps: {'com.example.app': 'fallback'},

@@ -22,5 +22,9 @@ final appInventoryProvider = Provider((ref) => const AppInventory());
 final subscriptionParserProvider = Provider((ref) => const SubscriptionParser());
 final updateServiceProvider = Provider((ref) => const UpdateService());
 
+/// Holds the latest available release once a check finds one newer than the
+/// running build. Drives the home-screen update banner; null = up to date.
+final updateAvailableProvider = StateProvider<UpdateInfo?>((ref) => null);
+
 /// Selected bottom-nav / rail destination, shared so any screen can navigate.
 final navIndexProvider = StateProvider<int>((ref) => 0);

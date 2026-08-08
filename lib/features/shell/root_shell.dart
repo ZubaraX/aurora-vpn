@@ -14,7 +14,6 @@ import '../apps/trigger_app_monitor.dart';
 import '../home/home_screen.dart';
 import '../servers/servers_screen.dart';
 import '../settings/settings_screen.dart';
-import '../update/update_dialog.dart';
 import 'aurora_background.dart';
 
 class RootShell extends ConsumerStatefulWidget {
@@ -72,7 +71,9 @@ class _RootShellState extends ConsumerState<RootShell>
     if (!mounted) return;
     final info = await ref.read(updateServiceProvider).check();
     if (!mounted || info == null) return;
-    showUpdateDialog(context, info);
+    // Surface it as a persistent banner on the home screen (see _UpdateBanner)
+    // instead of an intrusive dialog on every launch.
+    ref.read(updateAvailableProvider.notifier).state = info;
   }
 
   @override
