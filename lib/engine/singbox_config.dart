@@ -163,6 +163,8 @@ class SingBoxConfigBuilder {
     if (s.bypassLan) {
       rules.add({'ip_is_private': true, 'outbound': 'direct'});
     }
+    // User domain-zone rules win over the default rule-set routing below.
+    rules.addAll(_domainZoneRules(s));
     if (s.blockAds) {
       rules.add({'rule_set': 'geosite-ads', 'action': 'reject'});
     }
@@ -206,6 +208,34 @@ class SingBoxConfigBuilder {
     return route;
   }
 
+  /// Turns the user's domain-zone map into sing-box route rules, grouped by
+  /// target. A zone `ru` becomes `domain_suffix: ".ru"` (matches every `*.ru`);
+  /// an explicit host like `google.com` also matches the bare domain.
+  List<Map<String, dynamic>> _domainZoneRules(VpnSettings s) {
+    if (s.domainZoneRules.isEmpty) return const [];
+    final direct = <String>[];
+    final proxy = <String>[];
+    final block = <String>[];
+    s.domainZoneRules.forEach((zone, target) {
+      final z = _toAsciiDomain(zone.trim().toLowerCase());
+      if (z.isEmpty) return;
+      final suffixes = z.contains('.') ? ['.$z', z] : ['.$z'];
+      switch (target) {
+        case 'direct':
+          direct.addAll(suffixes);
+        case 'block':
+          block.addAll(suffixes);
+        default:
+          proxy.addAll(suffixes);
+      }
+    });
+    final out = <Map<String, dynamic>>[];
+    if (direct.isNotEmpty) out.add({'domain_suffix': direct, 'outbound': 'direct'});
+    if (proxy.isNotEmpty) out.add({'domain_suffix': proxy, 'outbound': 'proxy'});
+    if (block.isNotEmpty) out.add({'domain_suffix': block, 'action': 'reject'});
+    return out;
+  }
+
   List<Map<String, dynamic>> _ruleSets(VpnSettings s) {
     final sets = <Map<String, dynamic>>[];
     // Downloaded via the direct outbound so a rule-set fetch never depends on
@@ -237,6 +267,72 @@ class SingBoxConfigBuilder {
         ? normalized.split('/').last
         : normalized;
     return base;
+  }
+
+  /// Converts an internationalised domain (e.g. `сайт.рф`) to its ASCII/A-label
+  /// form (`xn--80aswg.xn--p1ai`) so a `domain_suffix` rule matches the punycode
+  /// SNI/DNS names sing-box actually sees. Pure-ASCII input is returned as-is.
+  String _toAsciiDomain(String domain) {
+    if (domain.codeUnits.every((c) => c < 0x80)) return domain;
+    return domain.split('.').map((label) {
+      if (label.isEmpty || label.runes.every((r) => r < 0x80)) return label;
+      return 'xn--${_punycodeEncode(label)}';
+    }).join('.');
+  }
+
+  /// RFC 3492 punycode encoder for a single label.
+  String _punycodeEncode(String input) {
+    const base = 36, tmin = 1, tmax = 26, skew = 38, damp = 700;
+    const initialBias = 72, initialN = 128;
+    final code = input.runes.toList();
+    final output = StringBuffer();
+    for (final c in code) {
+      if (c < 0x80) output.writeCharCode(c);
+    }
+    var b = output.length;
+    var h = b;
+    if (b > 0) output.write('-');
+    var n = initialN, delta = 0, bias = initialBias;
+    String digit(int d) =>
+        String.fromCharCode(d < 26 ? d + 0x61 : d - 26 + 0x30);
+    int adapt(int d, int numPoints, bool first) {
+      d = first ? d ~/ damp : d ~/ 2;
+      d += d ~/ numPoints;
+      var k = 0;
+      while (d > ((base - tmin) * tmax) ~/ 2) {
+        d ~/= (base - tmin);
+        k += base;
+      }
+      return k + ((base - tmin + 1) * d) ~/ (d + skew);
+    }
+
+    while (h < code.length) {
+      var m = 1 << 30;
+      for (final c in code) {
+        if (c >= n && c < m) m = c;
+      }
+      delta += (m - n) * (h + 1);
+      n = m;
+      for (final c in code) {
+        if (c < n) delta++;
+        if (c == n) {
+          var q = delta;
+          for (var k = base;; k += base) {
+            final t = k <= bias ? tmin : (k >= bias + tmax ? tmax : k - bias);
+            if (q < t) break;
+            output.write(digit(t + (q - t) % (base - t)));
+            q = (q - t) ~/ (base - t);
+          }
+          output.write(digit(q));
+          bias = adapt(delta, h + 1, h == b);
+          delta = 0;
+          h++;
+        }
+      }
+      delta++;
+      n++;
+    }
+    return output.toString();
   }
 
   bool _isIpv4(String host) {

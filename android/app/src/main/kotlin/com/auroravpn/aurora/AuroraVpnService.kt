@@ -365,7 +365,24 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val previousTun = tun
         tun = pfd
         try { previousTun?.close() } catch (_: Throwable) {}
+
+        // Bind the tunnel to the physical network that actually carries it.
+        // Without this the OS keeps the VPN tied to whatever was default at
+        // establish() time; on cellular that leaves protected proxy sockets on a
+        // stale/wrong interface, so the tunnel connects but no traffic flows
+        // (the classic "works on Wi-Fi, dead on mobile data"). The interface
+        // monitor keeps this current on every network change.
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        applyUnderlyingNetwork(defaultNetwork ?: findUnderlyingNetwork(cm))
         return pfd.fd
+    }
+
+    /// Tells Android which physical network backs the VPN, or null to fall back
+    /// to the system default. Safe to call before establish() (no-op then).
+    private fun applyUnderlyingNetwork(network: Network?) {
+        try {
+            setUnderlyingNetworks(if (network != null) arrayOf(network) else null)
+        } catch (_: Throwable) {}
     }
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
@@ -462,7 +479,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                if (notify(cm, network, listener)) defaultNetwork = network
+                if (notify(cm, network, listener)) {
+                    defaultNetwork = network
+                    applyUnderlyingNetwork(network)
+                }
             }
 
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) =
@@ -479,8 +499,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 val replacement = findUnderlyingNetwork(cm)
                 if (replacement == null || !notify(cm, replacement, listener)) {
                     listener.updateDefaultInterface("", -1, false, false)
+                    applyUnderlyingNetwork(null)
                 } else {
                     defaultNetwork = replacement
+                    applyUnderlyingNetwork(replacement)
                 }
             }
         }
@@ -528,7 +550,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         listener: InterfaceUpdateListener
     ) {
         if (network != defaultNetwork && defaultNetwork != null) return
-        if (notify(cm, network, listener)) defaultNetwork = network
+        if (notify(cm, network, listener)) {
+            defaultNetwork = network
+            applyUnderlyingNetwork(network)
+        }
     }
 
     private fun findUnderlyingNetwork(cm: ConnectivityManager): Network? {

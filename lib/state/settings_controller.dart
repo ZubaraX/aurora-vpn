@@ -42,6 +42,28 @@ class SettingsController extends StateNotifier<VpnSettings> {
     _commit(state.copyWith(collapsedSubs: set));
   }
 
+  /// Adds or updates a domain-zone routing rule. [zone] is normalised (lower
+  /// case, no leading dots/`*.`); [target] is `direct`, `proxy` or `block`.
+  void setDomainZoneRule(String zone, String target) {
+    final key = _normalizeZone(zone);
+    if (key.isEmpty) return;
+    final map = {...state.domainZoneRules};
+    map[key] = target;
+    _commit(state.copyWith(domainZoneRules: map));
+  }
+
+  void removeDomainZoneRule(String zone) {
+    final map = {...state.domainZoneRules}..remove(zone);
+    _commit(state.copyWith(domainZoneRules: map));
+  }
+
+  static String _normalizeZone(String raw) {
+    var z = raw.trim().toLowerCase();
+    if (z.startsWith('*.')) z = z.substring(2);
+    z = z.replaceAll(RegExp(r'^\.+'), '').replaceAll(RegExp(r'\.+$'), '');
+    return z;
+  }
+
   void toggleApp(String id) {
     final set = {...state.perAppSelected};
     set.contains(id) ? set.remove(id) : set.add(id);

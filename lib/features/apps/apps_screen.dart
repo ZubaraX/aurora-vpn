@@ -428,9 +428,9 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
   }
 
   String _short(PerAppMode m) => switch (m) {
-    PerAppMode.off => 'Выкл',
-    PerAppMode.allowlist => 'Только эти',
-    PerAppMode.blocklist => 'Кроме этих',
+    PerAppMode.off => 'Весь трафик',
+    PerAppMode.allowlist => 'Только выбранные',
+    PerAppMode.blocklist => 'Кроме выбранных',
   };
 
   /// `chrome.exe` → `chrome`; a package id is left as-is.

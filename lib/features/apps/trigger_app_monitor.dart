@@ -6,11 +6,16 @@ class TriggerSwitch {
     required this.appId,
     required this.networkType,
     required this.profileIds,
+    this.disconnect = false,
   });
 
   final String appId;
   final String networkType;
   final List<String> profileIds;
+
+  /// The trigger is set to "no VPN" for this network: tear the tunnel down
+  /// instead of connecting.
+  final bool disconnect;
 
   String get profileId => profileIds.isEmpty ? '' : profileIds.first;
 }
@@ -51,17 +56,11 @@ class TriggerAppMonitor {
 
     if (newlyActive.isNotEmpty) {
       final appId = newlyActive.last;
-      final profileIds = settings.triggerProfilesFor(appId, networkType);
+      final resolved = settings.triggerProfilesFor(appId, networkType);
       _sessionApp = appId;
       _sessionNetwork = networkType;
-      _sessionProfiles = profileIds;
-      return _needsSwitch(connectionStatus, activeNodeId, profileIds)
-          ? TriggerSwitch(
-              appId: appId,
-              networkType: networkType,
-              profileIds: profileIds,
-            )
-          : null;
+      _sessionProfiles = resolved;
+      return _switchFor(appId, networkType, resolved, connectionStatus, activeNodeId);
     }
 
     final appId = _sessionApp;
@@ -74,16 +73,40 @@ class TriggerAppMonitor {
 
     if (networkType == _sessionNetwork) return null;
 
-    final profileIds = settings.triggerProfilesFor(appId, networkType);
+    final resolved = settings.triggerProfilesFor(appId, networkType);
     _sessionNetwork = networkType;
-    if (_sameProfiles(profileIds, _sessionProfiles)) return null;
+    if (_sameProfiles(resolved, _sessionProfiles)) return null;
 
-    _sessionProfiles = profileIds;
-    return _needsSwitch(connectionStatus, activeNodeId, profileIds)
+    _sessionProfiles = resolved;
+    return _switchFor(appId, networkType, resolved, connectionStatus, activeNodeId);
+  }
+
+  /// Builds the switch for a resolved selection, honouring the "no VPN"
+  /// sentinel (tear down instead of connect).
+  static TriggerSwitch? _switchFor(
+    String appId,
+    String networkType,
+    List<String> resolved,
+    ConnectionStatus connectionStatus,
+    String? activeNodeId,
+  ) {
+    final noVpn = resolved.length == 1 && resolved.first == kTriggerNoVpn;
+    if (noVpn) {
+      // Only act if the tunnel is currently up — otherwise there is nothing to
+      // turn off.
+      if (!connectionStatus.isActive) return null;
+      return TriggerSwitch(
+        appId: appId,
+        networkType: networkType,
+        profileIds: const [],
+        disconnect: true,
+      );
+    }
+    return _needsSwitch(connectionStatus, activeNodeId, resolved)
         ? TriggerSwitch(
             appId: appId,
             networkType: networkType,
-            profileIds: profileIds,
+            profileIds: resolved,
           )
         : null;
   }

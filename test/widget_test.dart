@@ -83,6 +83,44 @@ void main() {
       expect(route['final'], 'direct');
     });
 
+    test('emits domain-zone rules (direct/proxy/block) with priority', () {
+      final node =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      const settings = VpnSettings(domainZoneRules: {
+        'ru': 'direct',
+        'com': 'proxy',
+        'ads.example': 'block',
+      });
+      final cfg =
+          const SingBoxConfigBuilder(isAndroid: true).build(node, settings);
+      final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
+      final direct = rules.firstWhere((r) =>
+          r['outbound'] == 'direct' && r['domain_suffix'] is List &&
+          (r['domain_suffix'] as List).contains('.ru'));
+      expect(direct, isNotNull);
+      final proxy = rules.firstWhere((r) =>
+          r['outbound'] == 'proxy' && r['domain_suffix'] is List &&
+          (r['domain_suffix'] as List).contains('.com'));
+      expect(proxy, isNotNull);
+      final block = rules.firstWhere((r) =>
+          r['action'] == 'reject' && r['domain_suffix'] is List &&
+          (r['domain_suffix'] as List).contains('.ads.example'));
+      // An explicit host also matches its bare form.
+      expect((block['domain_suffix'] as List), contains('ads.example'));
+    });
+
+    test('converts an IDN zone to punycode (рф → xn--p1ai)', () {
+      final node =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      const settings = VpnSettings(domainZoneRules: {'рф': 'direct'});
+      final cfg =
+          const SingBoxConfigBuilder(isAndroid: true).build(node, settings);
+      final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
+      final direct = rules.firstWhere(
+          (r) => r['outbound'] == 'direct' && r['domain_suffix'] is List);
+      expect((direct['domain_suffix'] as List), contains('.xn--p1ai'));
+    });
+
     test('uses valid raw GitHub URLs for remote rule-sets', () {
       final node =
           parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;

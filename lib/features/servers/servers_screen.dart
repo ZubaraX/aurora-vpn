@@ -95,7 +95,11 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                               const SizedBox(height: 8),
                               const SectionHeader('Свои серверы'),
                               for (final n in _filter(profile.looseNodes))
-                                _NodeTile(node: n, selected: n.id == activeId),
+                                _NodeTile(
+                                  node: n,
+                                  selected: n.id == activeId,
+                                  pinging: profile.pinging.contains(n.id),
+                                ),
                             ],
                           ],
                         ],
@@ -120,7 +124,14 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         ),
       ];
     }
-    return [for (final n in nodes) _NodeTile(node: n, selected: n.id == activeId)];
+    return [
+      for (final n in nodes)
+        _NodeTile(
+          node: n,
+          selected: n.id == activeId,
+          pinging: profile.pinging.contains(n.id),
+        ),
+    ];
   }
 
   List<Widget> _group(
@@ -133,7 +144,11 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         for (final n in nodes)
           Padding(
             padding: const EdgeInsets.only(left: 10),
-            child: _NodeTile(node: n, selected: n.id == activeId),
+            child: _NodeTile(
+              node: n,
+              selected: n.id == activeId,
+              pinging: profile.pinging.contains(n.id),
+            ),
           ),
       const SizedBox(height: 8),
     ];
@@ -344,9 +359,10 @@ class _UsageBar extends StatelessWidget {
 }
 
 class _NodeTile extends ConsumerWidget {
-  const _NodeTile({required this.node, required this.selected});
+  const _NodeTile({required this.node, required this.selected, this.pinging = false});
   final ProxyNode node;
   final bool selected;
+  final bool pinging;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -382,7 +398,7 @@ class _NodeTile extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 10),
-          LatencyIndicator(node.latencyMs),
+          LatencyIndicator(node.latencyMs, loading: pinging),
           PopupMenuButton<String>(
             color: AppColors.slate,
             icon: const Icon(Icons.more_vert_rounded, color: AppColors.mistDim, size: 18),

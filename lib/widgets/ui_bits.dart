@@ -57,12 +57,35 @@ class ProtocolBadge extends StatelessWidget {
 
 /// Colored dot + latency text for a node's measured ping.
 class LatencyIndicator extends StatelessWidget {
-  const LatencyIndicator(this.ms, {super.key, this.compact = false});
+  const LatencyIndicator(this.ms, {super.key, this.compact = false, this.loading = false});
   final int? ms;
   final bool compact;
 
+  /// While a ping is in flight the stale value is replaced by a spinner so the
+  /// interface never looks frozen mid-measurement.
+  final bool loading;
+
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      final spinner = SizedBox(
+        width: 12,
+        height: 12,
+        child: CircularProgressIndicator(
+          strokeWidth: 1.6,
+          valueColor: const AlwaysStoppedAnimation(AppColors.auroraTeal),
+        ),
+      );
+      if (compact) return spinner;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          spinner,
+          const SizedBox(width: 6),
+          Text('пинг…', style: AppType.mono(11, color: AppColors.mist)),
+        ],
+      );
+    }
     final color = AppColors.latencyColor(ms);
     final value = ms;
     final text = value == null

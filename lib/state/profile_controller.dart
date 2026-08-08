@@ -17,12 +17,17 @@ class ProfileState {
     this.subscriptions = const [],
     this.nodes = const [],
     this.busy = false,
+    this.pinging = const {},
     this.error,
   });
 
   final List<Subscription> subscriptions;
   final List<ProxyNode> nodes;
   final bool busy;
+
+  /// Ids of nodes whose latency is being measured right now. The UI shows a
+  /// spinner in place of the stale value so a re-ping never looks frozen.
+  final Set<String> pinging;
   final String? error;
 
   /// Manually-imported nodes not tied to a subscription.
@@ -44,12 +49,14 @@ class ProfileState {
     List<Subscription>? subscriptions,
     List<ProxyNode>? nodes,
     bool? busy,
+    Set<String>? pinging,
     String? error,
     bool clearError = false,
   }) => ProfileState(
     subscriptions: subscriptions ?? this.subscriptions,
     nodes: nodes ?? this.nodes,
     busy: busy ?? this.busy,
+    pinging: pinging ?? this.pinging,
     error: clearError ? null : (error ?? this.error),
   );
 }
@@ -307,24 +314,40 @@ class ProfileController extends StateNotifier<ProfileState> {
   /// Pings all nodes concurrently (bounded) and records latency.
   Future<void> pingAll() async {
     final nodes = state.nodes;
+    _setPinging(nodes.map((n) => n.id), true);
     final results = <String, int>{};
     const batch = 12;
     for (var i = 0; i < nodes.length; i += batch) {
-      final slice = nodes.skip(i).take(batch);
+      final slice = nodes.skip(i).take(batch).toList();
       await Future.wait(
         slice.map((n) async {
           results[n.id] = await _latency.ping(n.server, n.port);
         }),
       );
+      // Clear the spinner batch by batch as real values land.
+      _setPinging(slice.map((n) => n.id), false);
       _applyLatency(results);
     }
+    // Defensive: never leave a node stuck spinning if a slice went missing.
+    if (state.pinging.isNotEmpty) _setPinging(state.pinging.toList(), false);
   }
 
   Future<void> pingNode(String nodeId) async {
     final node = state.nodeById(nodeId);
     if (node == null) return;
-    final ms = await _latency.ping(node.server, node.port);
-    _applyLatency({nodeId: ms});
+    _setPinging([nodeId], true);
+    try {
+      final ms = await _latency.ping(node.server, node.port);
+      _applyLatency({nodeId: ms});
+    } finally {
+      _setPinging([nodeId], false);
+    }
+  }
+
+  void _setPinging(Iterable<String> ids, bool on) {
+    final set = {...state.pinging};
+    on ? set.addAll(ids) : set.removeAll(ids);
+    state = state.copyWith(pinging: set);
   }
 
   void _applyLatency(Map<String, int> results) {

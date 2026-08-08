@@ -108,4 +108,60 @@ void main() {
 
     expect(action, isNull);
   });
+
+  group('no-VPN per network', () {
+    const noVpnSettings = VpnSettings(
+      triggerApps: {'com.example.video': ''},
+      // VPN on Wi-Fi, but no VPN on mobile data.
+      triggerWifiProfiles: {'com.example.video': 'video-wifi'},
+      triggerMobileProfiles: {
+        'com.example.video': [kTriggerNoVpn],
+      },
+    );
+
+    test('opening on a no-VPN network tears an active tunnel down', () {
+      final monitor = TriggerAppMonitor();
+      final action = monitor.evaluate(
+        settings: noVpnSettings,
+        runningIds: {'com.example.video'},
+        networkType: 'mobile',
+        connectionStatus: ConnectionStatus.connected,
+        activeNodeId: 'video-wifi',
+      );
+      expect(action?.disconnect, isTrue);
+      expect(action?.profileIds, isEmpty);
+    });
+
+    test('no-VPN network does nothing when already disconnected', () {
+      final monitor = TriggerAppMonitor();
+      final action = monitor.evaluate(
+        settings: noVpnSettings,
+        runningIds: {'com.example.video'},
+        networkType: 'mobile',
+        connectionStatus: ConnectionStatus.disconnected,
+        activeNodeId: null,
+      );
+      expect(action, isNull);
+    });
+
+    test('switching from no-VPN mobile to Wi-Fi connects the Wi-Fi server', () {
+      final monitor = TriggerAppMonitor();
+      monitor.evaluate(
+        settings: noVpnSettings,
+        runningIds: {'com.example.video'},
+        networkType: 'mobile',
+        connectionStatus: ConnectionStatus.disconnected,
+        activeNodeId: null,
+      );
+      final action = monitor.evaluate(
+        settings: noVpnSettings,
+        runningIds: {'com.example.video'},
+        networkType: 'wifi',
+        connectionStatus: ConnectionStatus.disconnected,
+        activeNodeId: null,
+      );
+      expect(action?.disconnect, isFalse);
+      expect(action?.profileId, 'video-wifi');
+    });
+  });
 }

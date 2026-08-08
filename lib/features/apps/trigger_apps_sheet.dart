@@ -6,6 +6,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/country_flags.dart';
 import '../../data/models/installed_app.dart';
 import '../../data/models/proxy_node.dart';
+import '../../data/models/vpn_settings.dart';
 import '../../state/connection_controller.dart';
 import '../../state/profile_controller.dart';
 import '../../state/providers.dart';
@@ -103,7 +104,10 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
                     ],
                   ),
                   Text(
-                    'При открытии приложения VPN подключится или переключится на выбранный для текущей сети сервер.',
+                    'При открытии приложения Aurora переключится на сервер, '
+                    'выбранный для текущей сети. Wi-Fi и мобильная сеть '
+                    'настраиваются отдельно — для любой из них можно выбрать '
+                    '«Без VPN».',
                     style: AppType.ui(12.5, color: AppColors.mist),
                   ),
                   if (_hasTriggerAccess == false) ...[
@@ -317,11 +321,13 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
         break;
       }
     }
-    final label = profileId.isEmpty
-        ? 'Текущий сервер'
-        : (profileNode == null
-              ? 'узел удалён'
-              : CountryFlags.cleanName(profileNode.name));
+    final label = profileId == kTriggerNoVpn
+        ? 'Без VPN'
+        : profileId.isEmpty
+            ? 'Текущий сервер'
+            : (profileNode == null
+                  ? 'узел удалён'
+                  : CountryFlags.cleanName(profileNode.name));
 
     return Row(
       children: [
@@ -334,6 +340,7 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
           onSelected: onSelected,
           itemBuilder: (_) => [
             const PopupMenuItem(value: '', child: Text('Текущий сервер')),
+            const PopupMenuItem(value: kTriggerNoVpn, child: Text('Без VPN')),
             for (final node in nodes)
               PopupMenuItem(
                 value: node.id,
@@ -387,16 +394,19 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
     required List<ProxyNode> nodes,
     required VoidCallback onTap,
   }) {
+    final noVpn = profileIds.length == 1 && profileIds.first == kTriggerNoVpn;
     final byId = {for (final node in nodes) node.id: node};
     final selected = profileIds
         .map((id) => byId[id])
         .whereType<ProxyNode>()
         .toList();
-    final label = switch (selected.length) {
-      0 => 'Текущий сервер',
-      1 => CountryFlags.cleanName(selected.first.name),
-      _ => '${selected.length} серверов · автоподбор',
-    };
+    final label = noVpn
+        ? 'Без VPN'
+        : switch (selected.length) {
+            0 => 'Текущий сервер',
+            1 => CountryFlags.cleanName(selected.first.name),
+            _ => '${selected.length} серверов · автоподбор',
+          };
 
     return Row(
       children: [
@@ -596,7 +606,18 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
                       children: [
                         TextButton(
                           onPressed: () => setSheetState(selected.clear),
-                          child: const Text('Текущий сервер'),
+                          child: const Text('Текущий'),
+                        ),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.mist,
+                          ),
+                          onPressed: () {
+                            ctrl.setTriggerMobileProfiles(
+                                app.id, const [kTriggerNoVpn]);
+                            Navigator.pop(sheetContext);
+                          },
+                          child: const Text('Без VPN'),
                         ),
                         const Spacer(),
                         FilledButton.icon(

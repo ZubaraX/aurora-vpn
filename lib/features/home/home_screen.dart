@@ -8,6 +8,7 @@ import '../../core/utils/formatters.dart';
 import '../../data/models/enums.dart';
 import '../../data/models/proxy_node.dart';
 import '../../state/connection_controller.dart';
+import '../../state/profile_controller.dart';
 import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
 import '../../widgets/flag_badge.dart';
@@ -156,7 +157,12 @@ class _ServerChip extends ConsumerWidget {
               ],
             ),
           ),
-          if (node != null) LatencyIndicator(node!.latencyMs, compact: true),
+          if (node != null)
+            LatencyIndicator(
+              node!.latencyMs,
+              compact: true,
+              loading: ref.watch(profileProvider).pinging.contains(node!.id),
+            ),
           const SizedBox(width: 8),
           const Icon(Icons.chevron_right_rounded, color: AppColors.mist),
         ],

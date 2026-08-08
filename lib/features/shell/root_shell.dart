@@ -128,9 +128,13 @@ class _RootShellState extends ConsumerState<RootShell>
         activeNodeId: settings.activeNodeId,
       );
       if (action != null) {
-        await ref
-            .read(connectionProvider.notifier)
-            .connectToIds(action.profileIds);
+        final notifier = ref.read(connectionProvider.notifier);
+        if (action.disconnect) {
+          // "No VPN" is configured for this app on this network.
+          await notifier.disconnect();
+        } else {
+          await notifier.connectToIds(action.profileIds);
+        }
       }
     } finally {
       _checkingTriggers = false;

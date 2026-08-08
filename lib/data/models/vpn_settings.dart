@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'enums.dart';
 
+/// Sentinel trigger-app profile meaning "keep the VPN OFF on this network".
+/// Lets a trigger use the tunnel on one network type but not the other.
+const String kTriggerNoVpn = '__novpn__';
+
 /// All persisted user preferences plus the currently selected node.
 class VpnSettings {
   const VpnSettings({
@@ -9,6 +13,7 @@ class VpnSettings {
     this.perAppMode = PerAppMode.off,
     this.perAppSelected = const {},
     this.collapsedSubs = const {},
+    this.domainZoneRules = const {},
     this.triggerApps = const {},
     this.triggerWifiProfiles = const {},
     this.triggerMobileProfiles = const <String, List<String>>{},
@@ -32,6 +37,11 @@ class VpnSettings {
 
   /// Ids of subscriptions whose server list is collapsed/hidden in the UI.
   final Set<String> collapsedSubs;
+
+  /// User routing rules keyed by domain zone/suffix (e.g. `ru`, `рф`,
+  /// `google.com`) → target: `direct`, `proxy` or `block`. Applied ahead of the
+  /// default rule-set routing so a zone always wins.
+  final Map<String, String> domainZoneRules;
 
   /// Apps whose launch auto-connects the tunnel, mapped to the node id to
   /// connect (empty value = use the currently selected server). The value is
@@ -58,6 +68,7 @@ class VpnSettings {
     PerAppMode? perAppMode,
     Set<String>? perAppSelected,
     Set<String>? collapsedSubs,
+    Map<String, String>? domainZoneRules,
     Map<String, String>? triggerApps,
     Map<String, String>? triggerWifiProfiles,
     Map<String, List<String>>? triggerMobileProfiles,
@@ -79,6 +90,7 @@ class VpnSettings {
     perAppMode: perAppMode ?? this.perAppMode,
     perAppSelected: perAppSelected ?? this.perAppSelected,
     collapsedSubs: collapsedSubs ?? this.collapsedSubs,
+    domainZoneRules: domainZoneRules ?? this.domainZoneRules,
     triggerApps: triggerApps ?? this.triggerApps,
     triggerWifiProfiles: triggerWifiProfiles ?? this.triggerWifiProfiles,
     triggerMobileProfiles: triggerMobileProfiles ?? this.triggerMobileProfiles,
@@ -101,6 +113,7 @@ class VpnSettings {
     'perAppMode': perAppMode.name,
     'perAppSelected': perAppSelected.toList(),
     'collapsedSubs': collapsedSubs.toList(),
+    'domainZoneRules': domainZoneRules,
     'triggerApps': triggerApps,
     'triggerWifiProfiles': triggerWifiProfiles,
     'triggerMobileProfiles': triggerMobileProfiles,
@@ -125,6 +138,7 @@ class VpnSettings {
         .toSet(),
     collapsedSubs: ((j['collapsedSubs'] as List?)?.cast<String>() ?? const [])
         .toSet(),
+    domainZoneRules: _stringMap(j['domainZoneRules']),
     triggerApps: _stringMap(j['triggerApps']),
     triggerWifiProfiles: _stringMap(j['triggerWifiProfiles']),
     triggerMobileProfiles: _mobileProfiles(j['triggerMobileProfiles']),
@@ -147,6 +161,12 @@ class VpnSettings {
   String triggerProfileFor(String appId, String networkType) {
     final profiles = triggerProfilesFor(appId, networkType);
     return profiles.isEmpty ? '' : profiles.first;
+  }
+
+  /// Whether this trigger app should keep the VPN OFF on [networkType].
+  bool triggerNoVpnFor(String appId, String networkType) {
+    final ids = triggerProfilesFor(appId, networkType);
+    return ids.length == 1 && ids.first == kTriggerNoVpn;
   }
 
   /// Ordered profiles selected for a trigger app and upstream network.

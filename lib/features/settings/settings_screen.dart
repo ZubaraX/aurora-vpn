@@ -44,6 +44,10 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               const SizedBox(height: 20),
 
+              const SectionHeader('Доменные зоны'),
+              const _DomainZonesCard(),
+              const SizedBox(height: 20),
+
               const SectionHeader('Туннель'),
               GlassCard(
                 padding: EdgeInsets.zero,
@@ -266,6 +270,163 @@ class SettingsScreen extends ConsumerWidget {
       ),
     ],
   );
+}
+
+/// User routing rules by domain zone (e.g. `.ru → напрямую`).
+class _DomainZonesCard extends ConsumerWidget {
+  const _DomainZonesCard();
+
+  static const _targets = {
+    'direct': ('Напрямую', AppColors.auroraTeal),
+    'proxy': ('Через VPN', AppColors.auroraViolet),
+    'block': ('Блок', AppColors.signalRed),
+  };
+  static const _presets = ['ru', 'рф', 'by', 'com', 'cn'];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rules = ref.watch(settingsProvider).domainZoneRules;
+    final ctrl = ref.read(settingsProvider.notifier);
+    final entries = rules.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Отправляйте домены определённой зоны напрямую, через VPN или '
+            'блокируйте их. Например, зона «ru» — все сайты *.ru.',
+            style: AppType.ui(12.5, color: AppColors.mist),
+          ),
+          if (entries.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            for (final e in entries)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.travel_explore_rounded,
+                        color: AppColors.mist, size: 18),
+                    const SizedBox(width: 10),
+                    Text('.${e.key}',
+                        style: AppType.mono(13, weight: FontWeight.w700)),
+                    const Spacer(),
+                    _targetChip(e.value),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded,
+                          color: AppColors.mistDim, size: 18),
+                      onPressed: () => ctrl.removeDomainZoneRule(e.key),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final p in _presets)
+                if (!rules.containsKey(p))
+                  ActionChip(
+                    backgroundColor: AppColors.abyss,
+                    side: const BorderSide(color: AppColors.hairline),
+                    label: Text('+ .$p', style: AppType.mono(12)),
+                    onPressed: () => _showAdd(context, ref, preset: p),
+                  ),
+              ActionChip(
+                backgroundColor: AppColors.abyss,
+                side: const BorderSide(color: AppColors.hairline),
+                avatar: const Icon(Icons.add_rounded,
+                    color: AppColors.auroraTeal, size: 16),
+                label: Text('Своя зона', style: AppType.ui(12)),
+                onPressed: () => _showAdd(context, ref),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _targetChip(String target) {
+    final (label, color) = _targets[target] ?? _targets['proxy']!;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(label,
+          style: AppType.ui(11.5, weight: FontWeight.w700, color: color)),
+    );
+  }
+
+  Future<void> _showAdd(BuildContext context, WidgetRef ref,
+      {String? preset}) async {
+    final controller = TextEditingController(text: preset ?? '');
+    var target = 'direct';
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: AppColors.slate,
+          title: Text('Доменная зона', style: AppType.display(18)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: preset == null,
+                style: AppType.ui(14),
+                decoration: const InputDecoration(
+                  hintText: 'например: ru, рф, google.com',
+                  prefixText: '.',
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final entry in _targets.entries)
+                    ChoiceChip(
+                      label: Text(entry.value.$1),
+                      selected: target == entry.key,
+                      selectedColor: entry.value.$2.withValues(alpha: 0.25),
+                      backgroundColor: AppColors.abyss,
+                      labelStyle: AppType.ui(12.5,
+                          weight: FontWeight.w700,
+                          color: target == entry.key
+                              ? entry.value.$2
+                              : AppColors.mist),
+                      onSelected: (_) => setState(() => target = entry.key),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Добавить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == true) {
+      final zone = controller.text.trim();
+      if (zone.isNotEmpty) {
+        ref.read(settingsProvider.notifier).setDomainZoneRule(zone, target);
+      }
+    }
+  }
 }
 
 class _NavRow extends StatelessWidget {
