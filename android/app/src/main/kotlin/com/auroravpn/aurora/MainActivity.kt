@@ -47,6 +47,7 @@ class MainActivity : FlutterActivity() {
     private val VPN_REQUEST = 0x0A11
 
     private var pendingConfig: String? = null
+    private var pendingTitle: String? = null
     private var usageEventsCursor = 0L
     private val foregroundActivities = LinkedHashMap<String, Pair<String, Long>>()
 
@@ -80,7 +81,9 @@ class MainActivity : FlutterActivity() {
                 }, "aurora-probe").start()
                 "start" -> {
                     pendingConfig = call.argument<String>("config")
+                    pendingTitle = call.argument<String>("title")
                     pendingConfig?.let { AuroraTileState.saveConfig(this, it) }
+                    pendingTitle?.let { AuroraTileState.saveTitle(this, it) }
                     val prepare = VpnService.prepare(this)
                     if (prepare != null) {
                         startActivityForResult(prepare, VPN_REQUEST)
@@ -359,6 +362,7 @@ class MainActivity : FlutterActivity() {
         val intent = Intent(this, AuroraVpnService::class.java)
         intent.action = AuroraVpnService.ACTION_START
         intent.putExtra(AuroraVpnService.EXTRA_CONFIG, config)
+        pendingTitle?.let { intent.putExtra(AuroraVpnService.EXTRA_TITLE, it) }
         startService(intent)
     }
 

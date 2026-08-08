@@ -13,6 +13,7 @@ import android.service.quicksettings.TileService
 internal object AuroraTileState {
     private const val PREFS = "aurora_native"
     private const val CONFIG = "last_vpn_config"
+    private const val TITLE = "last_vpn_title"
     private const val STATUS = "vpn_status"
 
     fun saveConfig(context: Context, config: String) {
@@ -25,6 +26,17 @@ internal object AuroraTileState {
     fun lastConfig(context: Context): String? =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(CONFIG, null)
+
+    fun saveTitle(context: Context, title: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(TITLE, title)
+            .apply()
+    }
+
+    fun lastTitle(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(TITLE, null)
 
     fun status(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -96,6 +108,9 @@ class AuroraTileService : TileService() {
         val service = Intent(this, AuroraVpnService::class.java).apply {
             action = AuroraVpnService.ACTION_START
             putExtra(AuroraVpnService.EXTRA_CONFIG, config)
+            AuroraTileState.lastTitle(this@AuroraTileService)?.let {
+                putExtra(AuroraVpnService.EXTRA_TITLE, it)
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(service)

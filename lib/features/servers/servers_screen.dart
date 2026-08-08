@@ -26,12 +26,8 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
   String _query = '';
   bool _sortByPing = false;
 
-  @override
-  Widget build(BuildContext context) {
-    final profile = ref.watch(profileProvider);
-    final activeId = ref.watch(settingsProvider).activeNodeId;
-
-    var nodes = profile.nodes;
+  List<ProxyNode> _filter(List<ProxyNode> src) {
+    var nodes = src;
     if (_query.isNotEmpty) {
       final q = _query.toLowerCase();
       nodes = nodes
@@ -47,6 +43,15 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
           return (al < 0 ? 1 << 29 : al).compareTo(bl < 0 ? 1 << 29 : bl);
         });
     }
+    return nodes;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = ref.watch(profileProvider);
+    final settings = ref.watch(settingsProvider);
+    final activeId = settings.activeNodeId;
+    final searching = _query.isNotEmpty;
 
     return SafeArea(
       child: Center(
@@ -73,27 +78,26 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
                         children: [
-                          if (profile.subscriptions.isNotEmpty) ...[
-                            const SectionHeader('Подписки'),
-                            for (final s in profile.subscriptions)
-                              _SubscriptionCard(sub: s),
-                            const SizedBox(height: 20),
-                          ],
                           SectionHeader(
                             'Серверы · ${profile.nodes.length}',
                             trailing: _sortToggle(),
                           ),
                           _search(),
-                          const SizedBox(height: 10),
-                          for (final n in nodes)
-                            _NodeTile(node: n, selected: n.id == activeId),
-                          if (nodes.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 40),
-                              child: Text('Ничего не найдено',
-                                  textAlign: TextAlign.center,
-                                  style: AppType.ui(14, color: AppColors.mist)),
-                            ),
+                          const SizedBox(height: 12),
+                          // Grouped by subscription; each group collapses. When
+                          // searching we flatten so nothing hides matches.
+                          if (searching)
+                            ..._flatResults(profile, activeId)
+                          else ...[
+                            for (final s in profile.subscriptions)
+                              ..._group(s, profile, settings, activeId),
+                            if (profile.looseNodes.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              const SectionHeader('Свои серверы'),
+                              for (final n in _filter(profile.looseNodes))
+                                _NodeTile(node: n, selected: n.id == activeId),
+                            ],
+                          ],
                         ],
                       ),
               ),
@@ -102,6 +106,37 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         ),
       ),
     );
+  }
+
+  List<Widget> _flatResults(ProfileState profile, String? activeId) {
+    final nodes = _filter(profile.nodes);
+    if (nodes.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.only(top: 40),
+          child: Text('Ничего не найдено',
+              textAlign: TextAlign.center,
+              style: AppType.ui(14, color: AppColors.mist)),
+        ),
+      ];
+    }
+    return [for (final n in nodes) _NodeTile(node: n, selected: n.id == activeId)];
+  }
+
+  List<Widget> _group(
+      Subscription sub, ProfileState profile, dynamic settings, String? activeId) {
+    final collapsed = settings.collapsedSubs.contains(sub.id) as bool;
+    final nodes = _filter(profile.nodesOf(sub.id));
+    return [
+      _SubscriptionCard(sub: sub, collapsed: collapsed),
+      if (!collapsed)
+        for (final n in nodes)
+          Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: _NodeTile(node: n, selected: n.id == activeId),
+          ),
+      const SizedBox(height: 8),
+    ];
   }
 
   Widget _topBar(ProfileState profile) {
@@ -181,25 +216,46 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
 }
 
 class _SubscriptionCard extends ConsumerWidget {
-  const _SubscriptionCard({required this.sub});
+  const _SubscriptionCard({required this.sub, required this.collapsed});
   final Subscription sub;
+  final bool collapsed;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ctrl = ref.read(profileProvider.notifier);
     return GlassCard(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 8),
+      // Tap the header to collapse/expand this subscription's servers.
+      onTap: () => ref.read(settingsProvider.notifier).toggleCollapsedSub(sub.id),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.cloud_sync_rounded, color: AppColors.auroraViolet, size: 20),
+              AnimatedRotation(
+                turns: collapsed ? -0.25 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: const Icon(Icons.expand_more_rounded,
+                    color: AppColors.mist, size: 22),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.cloud_sync_rounded,
+                  color: AppColors.auroraViolet, size: 20),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(sub.name,
                     style: AppType.ui(15, weight: FontWeight.w700),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.slateHi,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text('${sub.nodeCount}',
+                    style: AppType.mono(11, weight: FontWeight.w700,
+                        color: AppColors.mist)),
               ),
               PopupMenuButton<String>(
                 color: AppColors.slate,
@@ -208,6 +264,8 @@ class _SubscriptionCard extends ConsumerWidget {
                   switch (v) {
                     case 'refresh':
                       ctrl.refreshSubscription(sub.id);
+                    case 'hide':
+                      ref.read(settingsProvider.notifier).toggleCollapsedSub(sub.id);
                     case 'auto':
                       ctrl.toggleAutoUpdate(sub.id);
                     case 'delete':
@@ -216,6 +274,9 @@ class _SubscriptionCard extends ConsumerWidget {
                 },
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'refresh', child: Text('Обновить')),
+                  PopupMenuItem(
+                      value: 'hide',
+                      child: Text(collapsed ? 'Показать серверы' : 'Скрыть серверы')),
                   PopupMenuItem(
                       value: 'auto',
                       child: Text(sub.autoUpdate

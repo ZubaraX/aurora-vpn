@@ -35,6 +35,13 @@ class SettingsController extends StateNotifier<VpnSettings> {
   void setPerAppMode(PerAppMode mode) =>
       _commit(state.copyWith(perAppMode: mode));
 
+  /// Collapse/expand a subscription's server list in the UI.
+  void toggleCollapsedSub(String id) {
+    final set = {...state.collapsedSubs};
+    set.contains(id) ? set.remove(id) : set.add(id);
+    _commit(state.copyWith(collapsedSubs: set));
+  }
+
   void toggleApp(String id) {
     final set = {...state.perAppSelected};
     set.contains(id) ? set.remove(id) : set.add(id);

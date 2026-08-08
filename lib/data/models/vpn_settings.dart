@@ -8,6 +8,7 @@ class VpnSettings {
     this.routingMode = RoutingMode.rule,
     this.perAppMode = PerAppMode.off,
     this.perAppSelected = const {},
+    this.collapsedSubs = const {},
     this.triggerApps = const {},
     this.triggerWifiProfiles = const {},
     this.triggerMobileProfiles = const <String, List<String>>{},
@@ -28,6 +29,9 @@ class VpnSettings {
   final RoutingMode routingMode;
   final PerAppMode perAppMode;
   final Set<String> perAppSelected;
+
+  /// Ids of subscriptions whose server list is collapsed/hidden in the UI.
+  final Set<String> collapsedSubs;
 
   /// Apps whose launch auto-connects the tunnel, mapped to the node id to
   /// connect (empty value = use the currently selected server). The value is
@@ -53,6 +57,7 @@ class VpnSettings {
     RoutingMode? routingMode,
     PerAppMode? perAppMode,
     Set<String>? perAppSelected,
+    Set<String>? collapsedSubs,
     Map<String, String>? triggerApps,
     Map<String, String>? triggerWifiProfiles,
     Map<String, List<String>>? triggerMobileProfiles,
@@ -73,6 +78,7 @@ class VpnSettings {
     routingMode: routingMode ?? this.routingMode,
     perAppMode: perAppMode ?? this.perAppMode,
     perAppSelected: perAppSelected ?? this.perAppSelected,
+    collapsedSubs: collapsedSubs ?? this.collapsedSubs,
     triggerApps: triggerApps ?? this.triggerApps,
     triggerWifiProfiles: triggerWifiProfiles ?? this.triggerWifiProfiles,
     triggerMobileProfiles: triggerMobileProfiles ?? this.triggerMobileProfiles,
@@ -94,6 +100,7 @@ class VpnSettings {
     'routingMode': routingMode.name,
     'perAppMode': perAppMode.name,
     'perAppSelected': perAppSelected.toList(),
+    'collapsedSubs': collapsedSubs.toList(),
     'triggerApps': triggerApps,
     'triggerWifiProfiles': triggerWifiProfiles,
     'triggerMobileProfiles': triggerMobileProfiles,
@@ -115,6 +122,8 @@ class VpnSettings {
     routingMode: _enum(RoutingMode.values, j['routingMode'], RoutingMode.rule),
     perAppMode: _enum(PerAppMode.values, j['perAppMode'], PerAppMode.off),
     perAppSelected: ((j['perAppSelected'] as List?)?.cast<String>() ?? const [])
+        .toSet(),
+    collapsedSubs: ((j['collapsedSubs'] as List?)?.cast<String>() ?? const [])
         .toSet(),
     triggerApps: _stringMap(j['triggerApps']),
     triggerWifiProfiles: _stringMap(j['triggerWifiProfiles']),

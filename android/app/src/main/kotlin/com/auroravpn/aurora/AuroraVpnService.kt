@@ -57,6 +57,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val ACTION_START = "com.auroravpn.aurora.START"
         const val ACTION_STOP = "com.auroravpn.aurora.STOP"
         const val EXTRA_CONFIG = "config"
+        const val EXTRA_TITLE = "title"
 
         private const val CHANNEL_ID = "aurora_vpn"
         private const val NOTIFICATION_ID = 0xA0
@@ -93,6 +94,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var controllerPort = 0
     private var tun: ParcelFileDescriptor? = null
     private var connectedSince: Long = 0
+    @Volatile private var serverName: String? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var defaultNetwork: Network? = null
     private var statsUploadTotal = 0L
@@ -101,7 +103,10 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startBox(intent.getStringExtra(EXTRA_CONFIG))
+            ACTION_START -> {
+                intent.getStringExtra(EXTRA_TITLE)?.let { serverName = it }
+                startBox(intent.getStringExtra(EXTRA_CONFIG))
+            }
             ACTION_STOP -> stopBox()
         }
         // A killed process cannot recover the in-memory config from a null
@@ -672,6 +677,21 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
     }
 
+    private fun buildNotification(text: String): Notification {
+        val pending = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+        )
+        val title = serverName?.takeIf { it.isNotBlank() }?.let { "Aurora · $it" } ?: "Aurora"
+        return Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setContentIntent(pending)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+    }
+
     private fun startForegroundNotification() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -679,21 +699,22 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 NotificationChannel(CHANNEL_ID, "Aurora VPN", NotificationManager.IMPORTANCE_LOW)
             )
         }
-        val pending = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
-        )
-        val notification: Notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Aurora")
-            .setContentText("Туннель активен")
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentIntent(pending)
-            .setOngoing(true)
-            .build()
-        startForeground(NOTIFICATION_ID, notification)
+        startForeground(NOTIFICATION_ID, buildNotification("Подключение…"))
+    }
+
+    private fun updateNotification(text: String) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIFICATION_ID, buildNotification(text))
+        } catch (_: Throwable) {}
     }
 
     private fun emitStatus(status: String) {
         AuroraTileState.updateStatus(this, status)
+        when {
+            status == "connected" -> updateNotification("Подключено · защищено")
+            status == "connecting" -> updateNotification("Подключение…")
+        }
         main.post { statusSink?.success(status) }
     }
 

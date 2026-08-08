@@ -97,6 +97,7 @@ class AndroidVpnEngine extends VpnEngine {
     ).buildString(node, settings);
     await _method.invokeMethod('start', {
       'config': config,
+      'title': node.name,
       'perAppMode': settings.perAppMode.name,
       'perApp': settings.perAppSelected.toList(),
     });
