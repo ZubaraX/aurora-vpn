@@ -206,7 +206,11 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
         _desiredNodeId = node.id;
         _ref.read(settingsProvider.notifier).setActiveNode(node.id);
         try {
-          await _engine.replace(node, _ref.read(settingsProvider));
+          await _engine.replace(
+            node,
+            _ref.read(settingsProvider),
+            nodes: _ref.read(profileProvider).nodes,
+          );
         } catch (_) {
           if (operation != _operation) return;
           continue;
@@ -256,7 +260,11 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
           _desiredNodeId = connectedFallback.id;
           _ref.read(settingsProvider.notifier).setActiveNode(connectedFallback.id);
           try {
-            await _engine.replace(connectedFallback, _ref.read(settingsProvider));
+            await _engine.replace(
+              connectedFallback,
+              _ref.read(settingsProvider),
+              nodes: _ref.read(profileProvider).nodes,
+            );
             await _waitForConnected();
           } catch (_) {}
           if (operation != _operation) return;

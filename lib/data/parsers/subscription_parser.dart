@@ -49,7 +49,17 @@ class SubscriptionParser {
         'tuic' => _tuic(link, index),
         _ => null,
       };
-      return node?.copyWith(subscriptionId: subscriptionId);
+      if (node == null) return null;
+      // Scope the id to the subscription so two subscriptions that list the
+      // same servers (common with one provider) don't produce colliding ids —
+      // which would make the second subscription's nodes shadow the first in
+      // any id-keyed lookup (selection highlight, profile pickers, ping map).
+      return node.copyWith(
+        subscriptionId: subscriptionId,
+        id: subscriptionId == null || subscriptionId.isEmpty
+            ? node.id
+            : '${subscriptionId}_${node.id}',
+      );
     } catch (_) {
       return null;
     }

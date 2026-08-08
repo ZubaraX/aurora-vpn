@@ -48,7 +48,11 @@ class SimulatedEngine extends VpnEngine {
   }
 
   @override
-  Future<void> start(ProxyNode node, VpnSettings settings) async {
+  Future<void> start(
+    ProxyNode node,
+    VpnSettings settings, {
+    List<ProxyNode> nodes = const [],
+  }) async {
     _transition?.cancel();
     _emit(ConnectionStatus.connecting);
     // Simulate a handshake with jittered latency.

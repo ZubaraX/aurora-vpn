@@ -90,14 +90,17 @@ class ProfileController extends StateNotifier<ProfileState> {
     });
   }
 
-  /// Refresh shortly after launch and every five minutes while the app lives.
+  /// Keeps subscriptions current: a refresh shortly after launch, then a sweep
+  /// every ~12 minutes. Timers keep firing in the background while the VPN
+  /// foreground service holds the process alive; foreground opens also refresh
+  /// via the lifecycle observer (see RootShell.didChangeAppLifecycleState).
   /// A freshness guard prevents duplicate downloads on rapid resume events.
   void _startAutoRefresh() {
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) refreshIfStale(maxAge: const Duration(minutes: 2));
     });
-    _autoRefresh = Timer.periodic(const Duration(minutes: 5), (_) {
-      refreshIfStale(maxAge: const Duration(minutes: 4));
+    _autoRefresh = Timer.periodic(const Duration(minutes: 12), (_) {
+      refreshIfStale(maxAge: const Duration(minutes: 10));
     });
   }
 

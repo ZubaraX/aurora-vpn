@@ -88,13 +88,17 @@ class AndroidVpnEngine extends VpnEngine {
   }
 
   @override
-  Future<void> start(ProxyNode node, VpnSettings settings) async {
+  Future<void> start(
+    ProxyNode node,
+    VpnSettings settings, {
+    List<ProxyNode> nodes = const [],
+  }) async {
     _lastError = null;
     _status = ConnectionStatus.connecting;
     _statusCtrl.add(_status);
     final config = const SingBoxConfigBuilder(
       isAndroid: true,
-    ).buildString(node, settings);
+    ).buildString(node, settings, nodes: nodes);
     await _method.invokeMethod('start', {
       'config': config,
       'title': node.name,
@@ -104,8 +108,12 @@ class AndroidVpnEngine extends VpnEngine {
   }
 
   @override
-  Future<void> replace(ProxyNode node, VpnSettings settings) =>
-      start(node, settings);
+  Future<void> replace(
+    ProxyNode node,
+    VpnSettings settings, {
+    List<ProxyNode> nodes = const [],
+  }) =>
+      start(node, settings, nodes: nodes);
 
   @override
   Future<void> stop() async {

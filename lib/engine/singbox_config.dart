@@ -15,7 +15,12 @@ class SingBoxConfigBuilder {
 
   static const _geoBase = 'https://raw.githubusercontent.com/SagerNet';
 
-  Map<String, dynamic> build(ProxyNode node, VpnSettings s) {
+  Map<String, dynamic> build(
+    ProxyNode node,
+    VpnSettings s, {
+    List<ProxyNode> nodes = const [],
+  }) {
+    final zoneServers = _zoneServerNodes(s, nodes);
     return {
       // Keep enough core diagnostics to explain a tunnel that is established
       // but cannot pass traffic. Logs remain app-private and can be cleared
@@ -28,9 +33,15 @@ class SingBoxConfigBuilder {
         // reached before the tunnel exists. Everything else (route-time domain
         // resolution) uses the remote resolver — see route.default_domain_resolver.
         {...node.toOutbound('proxy'), 'domain_resolver': 'direct'},
+        // Extra outbounds for domain zones routed through a specific server.
+        for (final entry in zoneServers.entries)
+          {
+            ...entry.value.toOutbound('zone-${entry.key}'),
+            'domain_resolver': 'direct',
+          },
         {'type': 'direct', 'tag': 'direct'},
       ],
-      'route': _route(s),
+      'route': _route(s, zoneServers.keys.toSet()),
       'experimental': {
         'cache_file': {'enabled': true},
         'clash_api': {'external_controller': '127.0.0.1:9090'},
@@ -38,8 +49,26 @@ class SingBoxConfigBuilder {
     };
   }
 
-  String buildString(ProxyNode node, VpnSettings s) =>
-      const JsonEncoder.withIndent('  ').convert(build(node, s));
+  String buildString(
+    ProxyNode node,
+    VpnSettings s, {
+    List<ProxyNode> nodes = const [],
+  }) =>
+      const JsonEncoder.withIndent('  ').convert(build(node, s, nodes: nodes));
+
+  /// Nodes referenced by a domain-zone rule that targets a specific server
+  /// (target = node id), keyed by id. Missing ids (deleted nodes) are skipped.
+  Map<String, ProxyNode> _zoneServerNodes(VpnSettings s, List<ProxyNode> nodes) {
+    if (s.domainZoneRules.isEmpty || nodes.isEmpty) return const {};
+    final byId = {for (final n in nodes) n.id: n};
+    final out = <String, ProxyNode>{};
+    for (final target in s.domainZoneRules.values) {
+      if (target == 'direct' || target == 'proxy' || target == 'block') continue;
+      final n = byId[target];
+      if (n != null) out[target] = n;
+    }
+    return out;
+  }
 
   // --- DNS (sing-box 1.12+ typed server format) ----------------------------
 
@@ -133,7 +162,7 @@ class SingBoxConfigBuilder {
 
   // --- Route ---------------------------------------------------------------
 
-  Map<String, dynamic> _route(VpnSettings s) {
+  Map<String, dynamic> _route(VpnSettings s, Set<String> zoneServerIds) {
     final rules = <Map<String, dynamic>>[
       {'action': 'sniff'},
       {'protocol': 'dns', 'action': 'hijack-dns'},
@@ -167,7 +196,7 @@ class SingBoxConfigBuilder {
       rules.add({'ip_is_private': true, 'outbound': 'direct'});
     }
     // User domain-zone rules win over the default rule-set routing below.
-    rules.addAll(_domainZoneRules(s));
+    rules.addAll(_domainZoneRules(s, zoneServerIds));
     if (s.blockAds) {
       rules.add({'rule_set': 'geosite-ads', 'action': 'reject'});
     }
@@ -219,29 +248,36 @@ class SingBoxConfigBuilder {
 
   /// Turns the user's domain-zone map into sing-box route rules, grouped by
   /// target. A zone `ru` becomes `domain_suffix: ".ru"` (matches every `*.ru`);
-  /// an explicit host like `google.com` also matches the bare domain.
-  List<Map<String, dynamic>> _domainZoneRules(VpnSettings s) {
+  /// an explicit host like `google.com` also matches the bare domain. A target
+  /// that is a known node id ([zoneServerIds]) routes the zone through that
+  /// server's dedicated `zone-<id>` outbound.
+  List<Map<String, dynamic>> _domainZoneRules(
+    VpnSettings s,
+    Set<String> zoneServerIds,
+  ) {
     if (s.domainZoneRules.isEmpty) return const [];
-    final direct = <String>[];
-    final proxy = <String>[];
-    final block = <String>[];
+    // Grouped suffixes keyed by the rule they map to: 'out:<tag>' or 'reject'.
+    final grouped = <String, List<String>>{};
     s.domainZoneRules.forEach((zone, target) {
       final z = _toAsciiDomain(zone.trim().toLowerCase());
       if (z.isEmpty) return;
       final suffixes = z.contains('.') ? ['.$z', z] : ['.$z'];
-      switch (target) {
-        case 'direct':
-          direct.addAll(suffixes);
-        case 'block':
-          block.addAll(suffixes);
-        default:
-          proxy.addAll(suffixes);
-      }
+      final key = switch (target) {
+        'direct' => 'out:direct',
+        'block' => 'reject',
+        'proxy' => 'out:proxy',
+        _ => zoneServerIds.contains(target) ? 'out:zone-$target' : 'out:proxy',
+      };
+      (grouped[key] ??= <String>[]).addAll(suffixes);
     });
     final out = <Map<String, dynamic>>[];
-    if (direct.isNotEmpty) out.add({'domain_suffix': direct, 'outbound': 'direct'});
-    if (proxy.isNotEmpty) out.add({'domain_suffix': proxy, 'outbound': 'proxy'});
-    if (block.isNotEmpty) out.add({'domain_suffix': block, 'action': 'reject'});
+    grouped.forEach((key, suffixes) {
+      if (key == 'reject') {
+        out.add({'domain_suffix': suffixes, 'action': 'reject'});
+      } else {
+        out.add({'domain_suffix': suffixes, 'outbound': key.substring(4)});
+      }
+    });
     return out;
   }
 

@@ -7,8 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/country_flags.dart';
 import '../../data/models/enums.dart';
+import '../../data/models/proxy_node.dart';
 import '../../state/connection_controller.dart';
+import '../../state/profile_controller.dart';
 import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
 import '../../widgets/glass_card.dart';
@@ -286,6 +289,7 @@ class _DomainZonesCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rules = ref.watch(settingsProvider).domainZoneRules;
+    final nodes = ref.watch(profileProvider).nodes;
     final ctrl = ref.read(settingsProvider.notifier);
     final entries = rules.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -295,8 +299,9 @@ class _DomainZonesCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Отправляйте домены определённой зоны напрямую, через VPN или '
-            'блокируйте их. Например, зона «ru» — все сайты *.ru.',
+            'Отправляйте домены определённой зоны напрямую, через VPN, '
+            'через конкретный сервер или блокируйте их. Например, зона «ru» — '
+            'все сайты *.ru.',
             style: AppType.ui(12.5, color: AppColors.mist),
           ),
           if (entries.isNotEmpty) ...[
@@ -312,7 +317,7 @@ class _DomainZonesCard extends ConsumerWidget {
                     Text('.${e.key}',
                         style: AppType.mono(13, weight: FontWeight.w700)),
                     const Spacer(),
-                    _targetChip(e.value),
+                    Flexible(child: _targetChip(e.value, nodes)),
                     IconButton(
                       icon: const Icon(Icons.close_rounded,
                           color: AppColors.mistDim, size: 18),
@@ -333,7 +338,7 @@ class _DomainZonesCard extends ConsumerWidget {
                     backgroundColor: AppColors.abyss,
                     side: const BorderSide(color: AppColors.hairline),
                     label: Text('+ .$p', style: AppType.mono(12)),
-                    onPressed: () => _showAdd(context, ref, preset: p),
+                    onPressed: () => _showAdd(context, ref, nodes, preset: p),
                   ),
               ActionChip(
                 backgroundColor: AppColors.abyss,
@@ -341,7 +346,7 @@ class _DomainZonesCard extends ConsumerWidget {
                 avatar: const Icon(Icons.add_rounded,
                     color: AppColors.auroraTeal, size: 16),
                 label: Text('Своя зона', style: AppType.ui(12)),
-                onPressed: () => _showAdd(context, ref),
+                onPressed: () => _showAdd(context, ref, nodes),
               ),
             ],
           ),
@@ -350,8 +355,19 @@ class _DomainZonesCard extends ConsumerWidget {
     );
   }
 
-  Widget _targetChip(String target) {
-    final (label, color) = _targets[target] ?? _targets['proxy']!;
+  /// (label, colour) for a zone target: one of the fixed modes, or a server
+  /// name when the target is a node id.
+  (String, Color) _targetInfo(String target, List<ProxyNode> nodes) {
+    final fixed = _targets[target];
+    if (fixed != null) return fixed;
+    for (final n in nodes) {
+      if (n.id == target) return (CountryFlags.cleanName(n.name), AppColors.frost);
+    }
+    return ('сервер удалён', AppColors.mistDim);
+  }
+
+  Widget _targetChip(String target, List<ProxyNode> nodes) {
+    final (label, color) = _targetInfo(target, nodes);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -359,12 +375,18 @@ class _DomainZonesCard extends ConsumerWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: AppType.ui(11.5, weight: FontWeight.w700, color: color)),
     );
   }
 
-  Future<void> _showAdd(BuildContext context, WidgetRef ref,
-      {String? preset}) async {
+  Future<void> _showAdd(
+    BuildContext context,
+    WidgetRef ref,
+    List<ProxyNode> nodes, {
+    String? preset,
+  }) async {
     final controller = TextEditingController(text: preset ?? '');
     var target = 'direct';
     final result = await showDialog<bool>(
@@ -373,39 +395,52 @@ class _DomainZonesCard extends ConsumerWidget {
         builder: (context, setState) => AlertDialog(
           backgroundColor: AppColors.slate,
           title: Text('Доменная зона', style: AppType.display(18)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: preset == null,
-                style: AppType.ui(14),
-                decoration: const InputDecoration(
-                  hintText: 'например: ru, рф, google.com',
-                  prefixText: '.',
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: preset == null,
+                  style: AppType.ui(14),
+                  decoration: const InputDecoration(
+                    hintText: 'например: ru, рф, google.com',
+                    prefixText: '.',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final entry in _targets.entries)
-                    ChoiceChip(
-                      label: Text(entry.value.$1),
-                      selected: target == entry.key,
-                      selectedColor: entry.value.$2.withValues(alpha: 0.25),
-                      backgroundColor: AppColors.abyss,
-                      labelStyle: AppType.ui(12.5,
-                          weight: FontWeight.w700,
-                          color: target == entry.key
-                              ? entry.value.$2
-                              : AppColors.mist),
-                      onSelected: (_) => setState(() => target = entry.key),
+                const SizedBox(height: 16),
+                Text('Куда направить',
+                    style: AppType.ui(12, color: AppColors.mist)),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final entry in _targets.entries)
+                          _choice(
+                            label: entry.value.$1,
+                            color: entry.value.$2,
+                            selected: target == entry.key,
+                            onTap: () => setState(() => target = entry.key),
+                          ),
+                        // One chip per server — routes this zone through it.
+                        for (final n in nodes)
+                          _choice(
+                            label: CountryFlags.cleanName(n.name),
+                            color: AppColors.auroraTeal,
+                            selected: target == n.id,
+                            onTap: () => setState(() => target = n.id),
+                          ),
+                      ],
                     ),
-                ],
-              ),
-            ],
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -426,6 +461,23 @@ class _DomainZonesCard extends ConsumerWidget {
         ref.read(settingsProvider.notifier).setDomainZoneRule(zone, target);
       }
     }
+  }
+
+  Widget _choice({
+    required String label,
+    required Color color,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return ChoiceChip(
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      selected: selected,
+      selectedColor: color.withValues(alpha: 0.25),
+      backgroundColor: AppColors.abyss,
+      labelStyle: AppType.ui(12.5,
+          weight: FontWeight.w700, color: selected ? color : AppColors.mist),
+      onSelected: (_) => onTap(),
+    );
   }
 }
 

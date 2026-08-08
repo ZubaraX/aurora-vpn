@@ -791,6 +791,9 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
+            // BigTextStyle guarantees the status/speed line is rendered on
+            // launchers (MIUI etc.) that otherwise show only the title.
+            .setStyle(Notification.BigTextStyle().bigText(text).setBigContentTitle(title))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pending)
             .setOngoing(true)
@@ -816,10 +819,15 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun updateNotification(text: String) {
-        try {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIFICATION_ID, buildNotification(text))
-        } catch (_: Throwable) {}
+        // Always post on the main thread — emitStatus runs on the core worker,
+        // and some launchers drop foreground-notification updates issued off the
+        // main thread.
+        main.post {
+            try {
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.notify(NOTIFICATION_ID, buildNotification(text))
+            } catch (_: Throwable) {}
+        }
     }
 
     private fun emitStatus(status: String) {

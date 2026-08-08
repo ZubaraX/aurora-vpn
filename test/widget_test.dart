@@ -42,6 +42,15 @@ void main() {
       expect(node.params['insecure'], true);
     });
 
+    test('scopes node ids to the subscription so two subs never collide', () {
+      const link = 'vless://uuid@a.com:443?security=tls&sni=a.com#A';
+      final a = parser.parseContent(link, subscriptionId: 'subA');
+      final b = parser.parseContent(link, subscriptionId: 'subB');
+      expect(a.single.id, isNot(b.single.id));
+      expect(a.single.subscriptionId, 'subA');
+      expect(b.single.subscriptionId, 'subB');
+    });
+
     test('decodes a base64-wrapped subscription of multiple links', () {
       const inner =
           'vless://uuid@a.com:443?security=tls&sni=a.com#A\n'
@@ -107,6 +116,48 @@ void main() {
           (r['domain_suffix'] as List).contains('.ads.example'));
       // An explicit host also matches its bare form.
       expect((block['domain_suffix'] as List), contains('ads.example'));
+    });
+
+    test('routes a domain zone through a specific server outbound', () {
+      final active =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final other = parser.parseLink(
+        'vless://uuid2@b.com:443?security=reality&sni=b.com&pbk=x&sid=00#B',
+        subscriptionId: 'sub1',
+      )!;
+      final settings = VpnSettings(domainZoneRules: {'ru': other.id});
+      final cfg = const SingBoxConfigBuilder(isAndroid: true)
+          .build(active, settings, nodes: [other]);
+      final outbounds = (cfg['outbounds'] as List).cast<Map>();
+      expect(
+        outbounds.any(
+            (o) => o['tag'] == 'zone-${other.id}' && o['server'] == 'b.com'),
+        isTrue,
+      );
+      final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
+      expect(
+        rules.any((r) =>
+            r['outbound'] == 'zone-${other.id}' &&
+            r['domain_suffix'] is List &&
+            (r['domain_suffix'] as List).contains('.ru')),
+        isTrue,
+      );
+    });
+
+    test('domain zone with an unknown server id falls back to proxy', () {
+      final active =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      const settings = VpnSettings(domainZoneRules: {'ru': 'deleted-node'});
+      final cfg = const SingBoxConfigBuilder(isAndroid: true)
+          .build(active, settings, nodes: const []);
+      final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
+      expect(
+        rules.any((r) =>
+            r['outbound'] == 'proxy' &&
+            r['domain_suffix'] is List &&
+            (r['domain_suffix'] as List).contains('.ru')),
+        isTrue,
+      );
     });
 
     test('converts an IDN zone to punycode (рф → xn--p1ai)', () {

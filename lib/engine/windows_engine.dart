@@ -85,7 +85,11 @@ class WindowsProcessEngine extends VpnEngine {
   }
 
   @override
-  Future<void> start(ProxyNode node, VpnSettings settings) async {
+  Future<void> start(
+    ProxyNode node,
+    VpnSettings settings, {
+    List<ProxyNode> nodes = const [],
+  }) async {
     _lastError = null;
     _logTail.clear();
     _emit(ConnectionStatus.connecting);
@@ -94,7 +98,7 @@ class WindowsProcessEngine extends VpnEngine {
 
       final config = const SingBoxConfigBuilder(
         isAndroid: false,
-      ).buildString(node, settings);
+      ).buildString(node, settings, nodes: nodes);
       final file = File('${AppPaths.dataDir().path}\\aurora-config.json');
       await file.writeAsString(config);
 

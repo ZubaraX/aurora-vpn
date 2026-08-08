@@ -25,7 +25,13 @@ abstract class VpnEngine {
   /// the status becomes [ConnectionStatus.error]).
   String? get lastError => null;
 
-  Future<void> start(ProxyNode node, VpnSettings settings);
+  /// Starts the tunnel on [node]. [nodes] is the full node list so domain-zone
+  /// rules can route specific zones through other servers (extra outbounds).
+  Future<void> start(
+    ProxyNode node,
+    VpnSettings settings, {
+    List<ProxyNode> nodes = const [],
+  });
   Future<void> stop();
 
   /// Replaces the active outbound with [node].
@@ -34,7 +40,11 @@ abstract class VpnEngine {
   /// Android overrides this to use libbox's in-process reload, which keeps the
   /// single Clash controller alive and avoids racing a second listener on
   /// 127.0.0.1:9090.
-  Future<void> replace(ProxyNode node, VpnSettings settings) async {
+  Future<void> replace(
+    ProxyNode node,
+    VpnSettings settings, {
+    List<ProxyNode> nodes = const [],
+  }) async {
     if (status.isActive) {
       await stop();
       if (status != ConnectionStatus.disconnected) {
@@ -51,7 +61,7 @@ abstract class VpnEngine {
         }
       }
     }
-    await start(node, settings);
+    await start(node, settings, nodes: nodes);
   }
 
   /// Verifies that the selected outbound can carry an HTTPS request.

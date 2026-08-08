@@ -30,8 +30,8 @@ class ProxyNode {
 
   String get subtitle => '${protocol.label} · $server:$port';
 
-  ProxyNode copyWith({int? latencyMs, String? subscriptionId}) => ProxyNode(
-        id: id,
+  ProxyNode copyWith({String? id, int? latencyMs, String? subscriptionId}) => ProxyNode(
+        id: id ?? this.id,
         name: name,
         protocol: protocol,
         server: server,
