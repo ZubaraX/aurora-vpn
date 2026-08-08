@@ -42,11 +42,14 @@ void main() {
       expect(node.params['insecure'], true);
     });
 
-    test('scopes node ids to the subscription so two subs never collide', () {
+    test('node id is a stable identity hash, independent of subscription', () {
+      // Saved trigger profiles / zone rules / active selection persist node
+      // ids, so the same server must yield the same id across re-imports —
+      // even under a different subscription. Only subscriptionId differs.
       const link = 'vless://uuid@a.com:443?security=tls&sni=a.com#A';
       final a = parser.parseContent(link, subscriptionId: 'subA');
       final b = parser.parseContent(link, subscriptionId: 'subB');
-      expect(a.single.id, isNot(b.single.id));
+      expect(a.single.id, b.single.id);
       expect(a.single.subscriptionId, 'subA');
       expect(b.single.subscriptionId, 'subB');
     });

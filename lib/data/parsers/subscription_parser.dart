@@ -49,17 +49,12 @@ class SubscriptionParser {
         'tuic' => _tuic(link, index),
         _ => null,
       };
-      if (node == null) return null;
-      // Scope the id to the subscription so two subscriptions that list the
-      // same servers (common with one provider) don't produce colliding ids —
-      // which would make the second subscription's nodes shadow the first in
-      // any id-keyed lookup (selection highlight, profile pickers, ping map).
-      return node.copyWith(
-        subscriptionId: subscriptionId,
-        id: subscriptionId == null || subscriptionId.isEmpty
-            ? node.id
-            : '${subscriptionId}_${node.id}',
-      );
+      // Node ids are a stable hash of the server identity (see `_id`) and are
+      // deliberately NOT scoped to the subscription: trigger-app profiles,
+      // domain-zone rules and the active selection all persist these ids, so
+      // they must stay identical across restarts and re-imports. Scoping them
+      // to the subscription once orphaned every saved selection ("узел удалён").
+      return node?.copyWith(subscriptionId: subscriptionId);
     } catch (_) {
       return null;
     }
