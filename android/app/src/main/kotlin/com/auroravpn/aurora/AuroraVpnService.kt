@@ -176,7 +176,8 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     android.util.Log.i("AuroraVPN", "core request $generation: command server ready")
                 }
                 android.util.Log.i("AuroraVPN", "core request $generation: applying config")
-                val newControllerPort = applyConfig(activeServer, config, override)
+                val resolvedConfig = resolveServerHost(config)
+                val newControllerPort = applyConfig(activeServer, resolvedConfig, override)
                 if (generation != coreGeneration) return@execute
                 controllerPort = newControllerPort
                 publishedControllerPort = newControllerPort
@@ -238,6 +239,61 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             }
         }
         throw lastFailure ?: IllegalStateException("Не удалось запустить Clash API")
+    }
+
+    private val ipv4Regex = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
+
+    private fun isNumericHost(host: String): Boolean =
+        host.contains(':') || host.startsWith("[") || ipv4Regex.matches(host)
+
+    /**
+     * Rewrites every proxy outbound's `server` domain to an IP resolved through
+     * the PHYSICAL network's own DNS (the carrier resolver), leaving the TLS
+     * `server_name` (Reality's borrowed SNI) untouched.
+     *
+     * Why: on a restricted / white-list network a public DoH (1.1.1.1) is
+     * refused, so sing-box cannot bootstrap-resolve the server's own domain and
+     * the tunnel comes up but passes no traffic (the exact failure seen in
+     * reference clients on cellular). The carrier resolver bound to the
+     * underlying network is always reachable and returns a routable IP.
+     */
+    private fun resolveServerHost(config: String): String {
+        return try {
+            val json = JSONObject(config)
+            val outbounds = json.optJSONArray("outbounds") ?: return config
+            var changed = false
+            for (i in 0 until outbounds.length()) {
+                val ob = outbounds.optJSONObject(i) ?: continue
+                when (ob.optString("type")) {
+                    "", "direct", "block", "dns", "selector", "urltest" -> continue
+                }
+                val host = ob.optString("server")
+                if (host.isEmpty() || isNumericHost(host)) continue
+                val ip = resolveViaUnderlying(host) ?: continue
+                ob.put("server", ip)
+                changed = true
+                android.util.Log.i("AuroraVPN", "resolved server $host -> $ip")
+            }
+            if (changed) json.toString() else config
+        } catch (t: Throwable) {
+            logError("resolve", t)
+            config
+        }
+    }
+
+    private fun resolveViaUnderlying(host: String): String? {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val net = defaultNetwork ?: findUnderlyingNetwork(cm)
+        return try {
+            val addrs = if (net != null) net.getAllByName(host)
+                        else InetAddress.getAllByName(host)
+            // Prefer IPv4 — widest reachability on cellular (464XLAT handles v6).
+            val chosen = addrs.firstOrNull { it is java.net.Inet4Address }
+                ?: addrs.firstOrNull()
+            chosen?.hostAddress
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun findFreeControllerPort(): Int =
@@ -621,6 +677,15 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     // --- helpers -------------------------------------------------------------
 
+    private fun fmtSpeed(bytesPerSec: Double): String {
+        val v = if (bytesPerSec < 0) 0.0 else bytesPerSec
+        return when {
+            v >= 1024 * 1024 -> String.format("%.1f МБ/с", v / (1024 * 1024))
+            v >= 1024 -> String.format("%.0f КБ/с", v / 1024)
+            else -> String.format("%.0f Б/с", v)
+        }
+    }
+
     private inline fun forEachString(it: StringIterator, block: (String) -> Unit) {
         while (it.hasNext()) block(it.next())
     }
@@ -668,6 +733,13 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                                 "connectedSince" to connectedSince
                             )
                         )
+                        // Live speed in the shade — state, profile (title) and
+                        // throughput without opening the app.
+                        if (coreConnected) {
+                            updateNotification(
+                                "Подключено · ↓ ${fmtSpeed(downloadSpeed)} · ↑ ${fmtSpeed(uploadSpeed)}"
+                            )
+                        }
                         main.postDelayed(nextTick, 1000)
                     }
                 }, "aurora-stats").start()
