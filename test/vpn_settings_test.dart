@@ -2,28 +2,30 @@ import 'package:aurora/data/models/vpn_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('migrates v1.6.0 subId-scoped node ids back to the stable id', () {
-    // v1.6.0 stored ids as <subId>_<hash>_<index>; the stable id is
-    // <hash>_<index>. fromJson must strip the subId so saved trigger
-    // profiles / zone rules / active selection keep matching their node.
+  test('migrates old node ids to the position-independent hash id', () {
+    // Older ids embedded the list index (and, briefly, the subscription id).
+    // fromJson strips them to the bare hash so saved trigger profiles / zone
+    // rules / active selection keep matching their node after the id scheme
+    // became position-independent.
     final json = {
-      'activeNodeId': 'sub1_abc123_0',
-      'triggerApps': {'com.example.app': 'sub1_abc123_0'},
-      'triggerWifiProfiles': {'com.example.app': 'sub1_abc123_0'},
+      'activeNodeId': 'sub1_abc123_0', // v1.6.0: subId_hash_index
+      'triggerApps': {'com.example.app': 'abc123_0'}, // v1.5–v1.6.2: hash_index
+      'triggerWifiProfiles': {'com.example.app': 'abc123_5'}, // reordered index
       'triggerMobileProfiles': {
-        'com.example.app': ['sub1_abc123_0', 'sub1_def456_1'],
+        'com.example.app': ['abc123_0', 'sub1_def456_1'],
       },
       'domainZoneRules': {'ru': 'sub1_abc123_0', 'com': 'direct'},
     };
     final s = VpnSettings.fromJson(json);
-    expect(s.activeNodeId, 'abc123_0');
-    expect(s.triggerApps['com.example.app'], 'abc123_0');
-    expect(s.triggerWifiProfiles['com.example.app'], 'abc123_0');
-    expect(s.triggerMobileProfiles['com.example.app'], ['abc123_0', 'def456_1']);
-    expect(s.domainZoneRules['ru'], 'abc123_0');
-    // Non-node targets and already-stable ids are untouched / idempotent.
+    expect(s.activeNodeId, 'abc123');
+    expect(s.triggerApps['com.example.app'], 'abc123');
+    // Same node saved at a different index still resolves to the same id.
+    expect(s.triggerWifiProfiles['com.example.app'], 'abc123');
+    expect(s.triggerMobileProfiles['com.example.app'], ['abc123', 'def456']);
+    expect(s.domainZoneRules['ru'], 'abc123');
+    // Non-node targets and already-stable ids pass through / are idempotent.
     expect(s.domainZoneRules['com'], 'direct');
-    expect(VpnSettings.migrateNodeId('abc123_0'), 'abc123_0');
+    expect(VpnSettings.migrateNodeId('abc123'), 'abc123');
     expect(VpnSettings.migrateNodeId('direct'), 'direct');
   });
 

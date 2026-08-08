@@ -201,16 +201,19 @@ class VpnSettings {
     });
   }
 
-  /// Migrates a persisted node id from the short-lived v1.6.0 scheme
-  /// (`<subId>_<hash>_<index>`, three underscore-parts) back to the stable
-  /// scheme (`<hash>_<index>`, two parts) so trigger profiles / zone rules /
-  /// the active selection saved under v1.6.0 keep matching their node. Values
-  /// that are not node ids (`direct`/`proxy`/`block`, empty, already 2-part)
-  /// are returned unchanged. Idempotent.
+  /// Migrates a persisted node id from any earlier scheme to the current
+  /// position-independent id (`<hash>`), so trigger profiles / zone rules / the
+  /// active selection saved before keep matching their node:
+  ///   `<hash>_<index>`          (v1.5–v1.6.2)  -> `<hash>`   (2 parts)
+  ///   `<subId>_<hash>_<index>`  (v1.6.0)       -> `<hash>`   (3 parts)
+  ///   `<hash>` / `direct` / `proxy` / `block`  -> unchanged  (1 part)
+  /// Idempotent, and non-node values (which never contain `_`) pass through.
   static String migrateNodeId(String id) {
     if (id.isEmpty) return id;
     final parts = id.split('_');
-    return parts.length >= 3 ? parts.sublist(parts.length - 2).join('_') : id;
+    if (parts.length == 2) return parts[0];
+    if (parts.length >= 3) return parts[parts.length - 2];
+    return id;
   }
 
   static Map<String, String> _migValues(Map<String, String> m) =>

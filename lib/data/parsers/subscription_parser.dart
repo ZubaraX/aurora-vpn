@@ -60,8 +60,13 @@ class SubscriptionParser {
     }
   }
 
-  String _id(String seed, int index) =>
-      '${seed.hashCode.toRadixString(16)}_$index';
+  // Stable, POSITION-INDEPENDENT node id: a hash of the server identity. The
+  // list index is intentionally ignored — if the id depended on position, a
+  // subscription provider returning its servers in a different order on refresh
+  // would change every id and silently wipe saved trigger profiles / zone rules
+  // / the active selection ("галочки убираются сами"). Same-server duplicates
+  // collapse to one id, which is acceptable (they are interchangeable).
+  String _id(String seed, int index) => seed.hashCode.toRadixString(16);
 
   String _name(String? given, String fallback) =>
       (given == null || given.trim().isEmpty) ? fallback : given.trim();
