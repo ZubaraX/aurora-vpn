@@ -180,31 +180,49 @@ class MainActivity : FlutterActivity() {
      * ping to the server is not enough: expired Reality credentials still
      * accept TCP while every proxied request fails.
      */
+    // Liveness endpoints tried through the proxy outbound, most-reachable first.
+    // A single Google URL false-negatives on exits that reach the wider internet
+    // but throttle Google or resolve it slowly; Cloudflare's captive-portal probe
+    // is plain HTTP and near-universally reachable, so it settles fast.
+    private val probeUrls = listOf(
+        "http%3A%2F%2Fcp.cloudflare.com%2Fgenerate_204",
+        "https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204",
+    )
+
     private fun probeProxy(): Boolean {
         val port = AuroraVpnService.controllerPort()
         if (port <= 0) return false
-        val path = "/proxies/proxy/delay" +
-            "?timeout=8000" +
-            "&url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204"
-        repeat(3) {
-            try {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress("127.0.0.1", port), 2000)
-                    socket.soTimeout = 10000
-                    val writer = socket.getOutputStream().bufferedWriter()
-                    writer.write("GET $path HTTP/1.1\r\n")
-                    writer.write("Host: 127.0.0.1:$port\r\n")
-                    writer.write("Connection: close\r\n\r\n")
-                    writer.flush()
-                    val status = socket.getInputStream().bufferedReader().readLine()
-                    if (status?.contains(" 200 ") == true) return true
-                }
-            } catch (_: Throwable) {}
-            try { Thread.sleep(600) } catch (_: InterruptedException) {
+        // Two quick passes over the endpoint list: a working exit answers on the
+        // first pass in well under a second; a second pass only covers a cold
+        // first request (Reality handshake) without dragging the whole failover.
+        repeat(2) {
+            for (url in probeUrls) {
+                if (delayOk(port, url)) return true
+            }
+            try { Thread.sleep(250) } catch (_: InterruptedException) {
                 return false
             }
         }
         return false
+    }
+
+    private fun delayOk(port: Int, encodedUrl: String): Boolean {
+        val path = "/proxies/proxy/delay?timeout=3500&url=$encodedUrl"
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", port), 1500)
+                socket.soTimeout = 5000
+                val writer = socket.getOutputStream().bufferedWriter()
+                writer.write("GET $path HTTP/1.1\r\n")
+                writer.write("Host: 127.0.0.1:$port\r\n")
+                writer.write("Connection: close\r\n\r\n")
+                writer.flush()
+                val status = socket.getInputStream().bufferedReader().readLine()
+                status?.contains(" 200 ") == true
+            }
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     private fun installApk(path: String?) {

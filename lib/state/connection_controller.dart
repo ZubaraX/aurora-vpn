@@ -191,6 +191,16 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
         candidatesOverride ?? _fallbackCandidates(preferred).take(4).toList();
 
     try {
+      // The first candidate that reaches "connected" (core up, TUN attached)
+      // even if its traffic probe did not answer. On Android "connected" means
+      // the core loaded — the VLESS/Reality outbound dials lazily on the first
+      // request — so a probe miss is often a slow cold handshake or a blocked
+      // test endpoint, not a dead exit. Rather than tearing everything down with
+      // "no traffic" (while the very same server works in other clients), we keep
+      // this connection as a soft fallback, mirroring how mainstream clients
+      // simply stay connected.
+      ProxyNode? connectedFallback;
+
       for (final node in candidates) {
         if (operation != _operation) return;
         _desiredNodeId = node.id;
@@ -212,6 +222,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
           }
           continue;
         }
+        connectedFallback ??= node;
 
         final reachable = await _engine.verifyConnection();
         if (operation != _operation) return;
@@ -235,12 +246,35 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
         // orderly stop inside replace().
       }
 
-      if (operation == _operation) {
-        await _engine.stop();
+      if (operation != _operation) return;
+
+      // None of the candidates passed the traffic probe. If at least one is
+      // actually connected, stay on it instead of dropping to "no traffic" —
+      // the probe endpoint may just be unreachable from that exit.
+      if (connectedFallback != null) {
+        if (_desiredNodeId != connectedFallback.id) {
+          _desiredNodeId = connectedFallback.id;
+          _ref.read(settingsProvider.notifier).setActiveNode(connectedFallback.id);
+          try {
+            await _engine.replace(connectedFallback, _ref.read(settingsProvider));
+            await _waitForConnected();
+          } catch (_) {}
+          if (operation != _operation) return;
+        }
+        _reconnectPolicy.reset();
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
         state = state.copyWith(
-          message: 'Серверы доступны по TCP, но не передают VPN-трафик',
+          message: 'Подключено. Проверка трафика не прошла — '
+              'если сайты не открываются, смените сервер.',
         );
+        return;
       }
+
+      await _engine.stop();
+      state = state.copyWith(
+        message: 'Не удалось подключиться ни к одному серверу из списка',
+      );
     } finally {
       if (operation == _operation) {
         _transitioning = false;
@@ -325,7 +359,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
                 status == ConnectionStatus.connected ||
                 status == ConnectionStatus.error,
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 15));
       return result == ConnectionStatus.connected;
     } on TimeoutException {
       state = state.copyWith(message: 'Истекло время ожидания VPN');

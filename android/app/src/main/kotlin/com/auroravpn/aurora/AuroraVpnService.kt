@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
@@ -681,6 +682,14 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val pending = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
+        // A one-tap "Disconnect" straight from the shade — the tunnel can be
+        // stopped without opening the app or hunting for the Quick Settings tile.
+        val stopIntent = Intent(this, AuroraVpnService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPending = PendingIntent.getService(
+            this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE
+        )
         val title = serverName?.takeIf { it.isNotBlank() }?.let { "Aurora · $it" } ?: "Aurora"
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
@@ -689,6 +698,13 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             .setContentIntent(pending)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .addAction(
+                Notification.Action.Builder(
+                    Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                    "Отключить",
+                    stopPending
+                ).build()
+            )
             .build()
     }
 
