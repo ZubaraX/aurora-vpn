@@ -49,12 +49,12 @@ class SubscriptionParser {
         'tuic' => _tuic(link, index),
         _ => null,
       };
-      // Node ids are a stable hash of the server identity (see `_id`) and are
-      // deliberately NOT scoped to the subscription: trigger-app profiles,
-      // domain-zone rules and the active selection all persist these ids, so
-      // they must stay identical across restarts and re-imports. Scoping them
-      // to the subscription once orphaned every saved selection ("узел удалён").
-      return node?.copyWith(subscriptionId: subscriptionId);
+      // The id is a hash of the node's FULL identity (see ProxyNode.identityId)
+      // — not its list position — so distinct profiles never collide (even to
+      // the same server) and reordering the subscription doesn't change ids.
+      // Persisted by trigger profiles / zone rules / the active selection.
+      if (node == null) return null;
+      return node.copyWith(subscriptionId: subscriptionId, id: node.identityId);
     } catch (_) {
       return null;
     }

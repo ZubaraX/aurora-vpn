@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'data/local/app_paths.dart';
+import 'data/local/node_id_migration.dart';
 import 'data/local/storage.dart';
 import 'engine/engine_factory.dart';
 import 'state/providers.dart';
@@ -18,6 +19,9 @@ Future<void> main() async {
   ));
 
   final storage = Storage(AppPaths.dataDir());
+  // Carry saved trigger profiles / zone rules / active selection across the
+  // move to content-based node ids (runs before any controller reads storage).
+  NodeIdMigration.run(storage);
   final engine = await EngineFactory.create();
 
   runApp(
