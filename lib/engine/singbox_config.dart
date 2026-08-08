@@ -24,7 +24,10 @@ class SingBoxConfigBuilder {
       'dns': _dns(s),
       'inbounds': [_tunInbound(s)],
       'outbounds': [
-        node.toOutbound('proxy'),
+        // Resolve THIS server's own domain via the direct resolver so it can be
+        // reached before the tunnel exists. Everything else (route-time domain
+        // resolution) uses the remote resolver — see route.default_domain_resolver.
+        {...node.toOutbound('proxy'), 'domain_resolver': 'direct'},
         {'type': 'direct', 'tag': 'direct'},
       ],
       'route': _route(s),
@@ -196,8 +199,14 @@ class SingBoxConfigBuilder {
       'rules': rules,
       'final': finalOutbound,
       'auto_detect_interface': true,
+      // Route-time domain resolution (e.g. for geoip matching) goes through the
+      // proxy's remote resolver. On a white-list network the direct path to a
+      // public DoH (1.1.1.1) is blocked, so a direct resolver would stall every
+      // connection on a DNS timeout — the tunnel is up but nothing loads. The
+      // proxy server's OWN domain still resolves via 'direct' (set per-outbound)
+      // to avoid a resolve-through-itself loop.
       'default_domain_resolver': {
-        'server': 'direct',
+        'server': 'remote',
         'strategy': s.ipv6 ? 'prefer_ipv4' : 'ipv4_only',
       },
     };
@@ -238,8 +247,13 @@ class SingBoxConfigBuilder {
 
   List<Map<String, dynamic>> _ruleSets(VpnSettings s) {
     final sets = <Map<String, dynamic>>[];
-    // Downloaded via the direct outbound so a rule-set fetch never depends on
-    // the tunnel it is meant to configure (that deadlocks on first connect).
+    // Downloaded through the PROXY, not direct. On a restricted (white-list)
+    // network GitHub is not reachable directly, so a direct fetch hangs/fails
+    // and — because DNS and route rules reference these sets — the tunnel comes
+    // up but passes no traffic. `download_detour` connections bypass the route
+    // engine, so routing them through the (already reachable, white-listed)
+    // proxy server does not depend on the rule-sets themselves: no deadlock.
+    // Results are persisted by `cache_file`, so this only costs the first fetch.
     void add(String tag, String repo, String file) => sets.add({
       'type': 'remote',
       'tag': tag,
@@ -248,7 +262,7 @@ class SingBoxConfigBuilder {
       // address it directly; inserting an extra `/raw/` returns 404 and
       // prevents the core from starting.
       'url': '$_geoBase/$repo/rule-set/$file.srs',
-      'download_detour': 'direct',
+      'download_detour': 'proxy',
     });
     if (s.blockAds) {
       add('geosite-ads', 'sing-geosite', 'geosite-category-ads-all');

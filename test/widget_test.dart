@@ -121,6 +121,32 @@ void main() {
       expect((direct['domain_suffix'] as List), contains('.xn--p1ai'));
     });
 
+    test('rule-sets download through the proxy (white-list networks)', () {
+      final node =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final cfg = const SingBoxConfigBuilder(isAndroid: true)
+          .build(node, const VpnSettings());
+      final ruleSets = (cfg['route'] as Map)['rule_set'] as List;
+      expect(ruleSets, isNotEmpty);
+      expect(
+        ruleSets.every((r) => (r as Map)['download_detour'] == 'proxy'),
+        isTrue,
+      );
+    });
+
+    test('route-time resolver is remote; server domain resolves direct', () {
+      final node =
+          parser.parseLink('vless://uuid@host.example:443?security=tls&sni=a.com#A')!;
+      final cfg = const SingBoxConfigBuilder(isAndroid: true)
+          .build(node, const VpnSettings());
+      final route = cfg['route'] as Map;
+      expect((route['default_domain_resolver'] as Map)['server'], 'remote');
+      final proxy = (cfg['outbounds'] as List)
+          .cast<Map>()
+          .firstWhere((o) => o['tag'] == 'proxy');
+      expect(proxy['domain_resolver'], 'direct');
+    });
+
     test('uses valid raw GitHub URLs for remote rule-sets', () {
       final node =
           parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;

@@ -405,7 +405,7 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 13),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           gradient: active ? AppColors.auroraGradient : null,
@@ -417,6 +417,8 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
         ),
         child: Text(
           _short(m),
+          textAlign: TextAlign.center,
+          maxLines: 2,
           style: AppType.ui(
             12.5,
             weight: FontWeight.w800,
