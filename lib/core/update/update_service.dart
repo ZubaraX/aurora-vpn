@@ -68,6 +68,15 @@ class UpdateService {
     }
   }
 
+  /// Posts a system notification (Android) announcing [version]. No-op on other
+  /// platforms; failures are swallowed.
+  Future<void> notifyAvailable(String version) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('notifyUpdate', {'version': version});
+    } catch (_) {}
+  }
+
   /// Downloads and applies [info] for the current platform. Returns false if
   /// there is nothing to do (no asset).
   Future<bool> apply(UpdateInfo info, {void Function(double)? onProgress}) async {

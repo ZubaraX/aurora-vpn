@@ -775,7 +775,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
     }
 
-    private fun buildNotification(text: String): Notification {
+    private fun buildNotification(statusLine: String): Notification {
         val pending = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
@@ -787,13 +787,19 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val stopPending = PendingIntent.getService(
             this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE
         )
-        val title = serverName?.takeIf { it.isNotBlank() }?.let { "Aurora · $it" } ?: "Aurora"
+        // The status + speed goes in the TITLE, not the second line: aggressive
+        // launchers (MIUI etc.) collapse a low-importance foreground notification
+        // to the title only and hide contentText/BigText, which is why the status
+        // line never appeared. The profile name is the (best-effort) second line.
+        val profile = serverName?.takeIf { it.isNotBlank() } ?: "Aurora VPN"
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(text)
-            // BigTextStyle guarantees the status/speed line is rendered on
-            // launchers (MIUI etc.) that otherwise show only the title.
-            .setStyle(Notification.BigTextStyle().bigText(text).setBigContentTitle(title))
+            .setContentTitle(statusLine)
+            .setContentText(profile)
+            .setStyle(
+                Notification.BigTextStyle()
+                    .setBigContentTitle(statusLine)
+                    .bigText(profile)
+            )
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pending)
             .setOngoing(true)

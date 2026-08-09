@@ -1,6 +1,10 @@
 package com.auroravpn.aurora
 
 import android.app.AppOpsManager
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.StatusBarManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
@@ -143,6 +147,10 @@ class MainActivity : FlutterActivity() {
                 "openUrl" -> {
                     openUrl(call.argument<String>("url")); result.success(true)
                 }
+                "notifyUpdate" -> {
+                    showUpdateNotification(call.argument<String>("version") ?: "")
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -223,6 +231,42 @@ class MainActivity : FlutterActivity() {
         } catch (_: Throwable) {
             false
         }
+    }
+
+    /// Posts a shade notification announcing an available update. Tapping it
+    /// opens Aurora, where the home-screen banner offers the one-tap update.
+    private fun showUpdateNotification(version: String) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "aurora_update"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        channelId,
+                        "Обновления Aurora",
+                        NotificationManager.IMPORTANCE_DEFAULT
+                    )
+                )
+            }
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            val pending = PendingIntent.getActivity(
+                this, 2, intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val text = if (version.isNotBlank())
+                "Версия $version · нажмите, чтобы обновить"
+            else "Нажмите, чтобы обновить"
+            val n = Notification.Builder(this, channelId)
+                .setContentTitle("Доступно обновление Aurora")
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(0xA1, n)
+        } catch (_: Throwable) {}
     }
 
     private fun installApk(path: String?) {

@@ -74,6 +74,13 @@ class _RootShellState extends ConsumerState<RootShell>
     // Surface it as a persistent banner on the home screen (see _UpdateBanner)
     // instead of an intrusive dialog on every launch.
     ref.read(updateAvailableProvider.notifier).state = info;
+    // Also push a shade notification — once per version, so it isn't repeated
+    // on every launch while the same update stays pending.
+    final storage = ref.read(storageProvider);
+    if (storage.readMap('aurora.update')?['notified'] != info.version) {
+      await ref.read(updateServiceProvider).notifyAvailable(info.version);
+      await storage.writeJson('aurora.update', {'notified': info.version});
+    }
   }
 
   @override
