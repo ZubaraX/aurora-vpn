@@ -31,16 +31,19 @@ class ProxyNode {
   String get subtitle => '${protocol.label} · $server:$port';
 
   /// Stable, position-independent identity used as the node [id]: a hash of the
-  /// full connection identity — protocol, server, port, display name and every
-  /// param. This keeps distinct profiles unique even when they share a server
-  /// (a provider listing the same host under several names/SNIs), and it does
-  /// not depend on the node's position in the subscription, so reordering never
-  /// changes it. A provider *renaming* a profile does change its id — a rare,
-  /// accepted trade-off for reliable per-profile selection.
+  /// CONNECTION identity — protocol, server, port and every param (uuid, sni,
+  /// network, path, flow, …). Two profiles that differ in any connection param
+  /// get distinct ids even when they share a host; two that are identical
+  /// connections collapse to one (they are interchangeable).
+  ///
+  /// The display [name] is deliberately EXCLUDED: providers often encode live
+  /// data (remaining traffic, expiry) in the name, so hashing it would change a
+  /// profile's id on every refresh and silently drop its saved selection. The
+  /// id also ignores list position, so reordering never changes it.
   String get identityId {
     final keys = params.keys.toList()..sort();
     final p = keys.map((k) => '$k=${params[k]}').join('&');
-    return '${protocol.name}|$server|$port|$name|$p'.hashCode.toRadixString(16);
+    return '${protocol.name}|$server|$port|$p'.hashCode.toRadixString(16);
   }
 
   ProxyNode copyWith({String? id, int? latencyMs, String? subscriptionId}) => ProxyNode(

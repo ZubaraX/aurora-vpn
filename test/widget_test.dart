@@ -54,6 +54,20 @@ void main() {
       expect(b.single.subscriptionId, 'subB');
     });
 
+    test('node id ignores the display name but tracks connection params', () {
+      // A provider changing a profile's label (traffic/expiry counters) must
+      // NOT change its id, or the saved selection would drop on refresh…
+      final renamed1 = parser.parseLink(
+          'vless://uuid@a.com:443?security=tls&sni=a.com#Server%20%5B30GB%5D')!;
+      final renamed2 = parser.parseLink(
+          'vless://uuid@a.com:443?security=tls&sni=a.com#Server%20%5B29GB%5D')!;
+      expect(renamed1.id, renamed2.id);
+      // …but a real connection difference (SNI) still yields a distinct id.
+      final otherSni = parser.parseLink(
+          'vless://uuid@a.com:443?security=tls&sni=b.com#Server')!;
+      expect(otherSni.id, isNot(renamed1.id));
+    });
+
     test('decodes a base64-wrapped subscription of multiple links', () {
       const inner =
           'vless://uuid@a.com:443?security=tls&sni=a.com#A\n'
