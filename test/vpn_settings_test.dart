@@ -29,6 +29,29 @@ void main() {
     expect(VpnSettings.migrateNodeId('direct'), 'direct');
   });
 
+  test('fromJson tolerates unexpected field types without throwing', () {
+    // A single bad type must not throw — that would send _load to blank
+    // defaults and the next write would wipe every trigger profile.
+    final s = VpnSettings.fromJson({
+      'perAppSelected': {'not': 'a list'}, // Map instead of List
+      'collapsedSubs': 'oops', // String instead of List
+      'tunMode': 1, // int instead of bool
+      'blockAds': 'true', // String instead of bool
+      'activeNodeId': 123, // int instead of String
+      'triggerApps': ['a', 'b'], // legacy List instead of Map
+      'triggerWifiProfiles': {'app': 'node'},
+      'dnsRemote': 42, // int instead of String
+    });
+    expect(s.perAppSelected, isEmpty);
+    expect(s.collapsedSubs, isEmpty);
+    expect(s.tunMode, true);
+    expect(s.blockAds, true);
+    expect(s.activeNodeId, '123');
+    expect(s.triggerApps.keys, containsAll(['a', 'b']));
+    expect(s.triggerWifiProfiles['app'], 'node');
+    expect(s.dnsRemote, '42');
+  });
+
   test('trigger profiles are selected by upstream network type', () {
     const settings = VpnSettings(
       triggerApps: {'com.example.app': 'fallback'},

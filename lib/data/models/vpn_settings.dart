@@ -131,33 +131,48 @@ class VpnSettings {
     'locale': locale,
   };
 
+  /// Tolerant parser: every field is read defensively so a single unexpected
+  /// type can NEVER throw. A throw here would send SettingsController._load to
+  /// blank defaults, and the next write would persist that — silently wiping
+  /// trigger profiles / zone rules / the active selection.
   factory VpnSettings.fromJson(Map<String, dynamic> j) => VpnSettings(
     routingMode: _enum(RoutingMode.values, j['routingMode'], RoutingMode.rule),
     perAppMode: _enum(PerAppMode.values, j['perAppMode'], PerAppMode.off),
-    perAppSelected: ((j['perAppSelected'] as List?)?.cast<String>() ?? const [])
-        .toSet(),
-    collapsedSubs: ((j['collapsedSubs'] as List?)?.cast<String>() ?? const [])
-        .toSet(),
+    perAppSelected: _stringList(j['perAppSelected']).toSet(),
+    collapsedSubs: _stringList(j['collapsedSubs']).toSet(),
     domainZoneRules: _migValues(_stringMap(j['domainZoneRules'])),
     triggerApps: _migValues(_stringMap(j['triggerApps'])),
     triggerWifiProfiles: _migValues(_stringMap(j['triggerWifiProfiles'])),
     triggerMobileProfiles: _mobileProfiles(j['triggerMobileProfiles'])
         .map((k, v) => MapEntry(k, v.map(migrateNodeId).toList())),
-    tunMode: j['tunMode'] as bool? ?? true,
+    tunMode: _bool(j['tunMode'], true),
     tunStack: _enum(TunStack.values, j['tunStack'], TunStack.mixed),
-    bypassLan: j['bypassLan'] as bool? ?? true,
-    blockAds: j['blockAds'] as bool? ?? false,
-    ipv6: j['ipv6'] as bool? ?? false,
-    dnsRemote: j['dnsRemote'] as String? ?? 'https://1.1.1.1/dns-query',
-    dnsDirect: j['dnsDirect'] as String? ?? 'https://1.1.1.1/dns-query',
-    autoConnect: j['autoConnect'] as bool? ?? false,
-    killSwitch: j['killSwitch'] as bool? ?? true,
+    bypassLan: _bool(j['bypassLan'], true),
+    blockAds: _bool(j['blockAds'], false),
+    ipv6: _bool(j['ipv6'], false),
+    dnsRemote: _str(j['dnsRemote'], 'https://1.1.1.1/dns-query'),
+    dnsDirect: _str(j['dnsDirect'], 'https://1.1.1.1/dns-query'),
+    autoConnect: _bool(j['autoConnect'], false),
+    killSwitch: _bool(j['killSwitch'], true),
     activeNodeId: j['activeNodeId'] == null
         ? null
-        : migrateNodeId(j['activeNodeId'] as String),
+        : migrateNodeId('${j['activeNodeId']}'),
     themeMode: _enum(ThemeMode.values, j['themeMode'], ThemeMode.dark),
-    locale: j['locale'] as String? ?? 'ru',
+    locale: _str(j['locale'], 'ru'),
   );
+
+  static List<String> _stringList(Object? raw) =>
+      raw is List ? [for (final e in raw) '$e'] : const [];
+
+  static bool _bool(Object? raw, bool fallback) {
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    if (raw is String) return raw == 'true' || raw == '1';
+    return fallback;
+  }
+
+  static String _str(Object? raw, String fallback) =>
+      raw is String ? raw : (raw == null ? fallback : '$raw');
 
   /// Profile selected for a trigger app on the current connection type.
   /// Unknown/desktop connection types keep the legacy/default selection.
