@@ -220,8 +220,18 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     final operation = ++_operation;
     _transitioning = true;
     state = state.copyWith(clearMessage: true);
-    final candidates =
+    final raw =
         candidatesOverride ?? _fallbackCandidates(preferred).take(4).toList();
+    // Try servers that aren't known-dead first — demote ones whose last ping
+    // timed out (latencyMs < 0) to the end, preserving the user's order within
+    // each group. This reaches a working server quickly instead of burning the
+    // per-candidate connect+probe budget on servers that just timed out.
+    final candidates = [
+      for (final n in raw)
+        if ((n.latencyMs ?? 0) >= 0) n,
+      for (final n in raw)
+        if ((n.latencyMs ?? 0) < 0) n,
+    ];
 
     try {
       // The first candidate that reaches "connected" (core up, TUN attached)
@@ -400,7 +410,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
                 status == ConnectionStatus.connected ||
                 status == ConnectionStatus.error,
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 10));
       return result == ConnectionStatus.connected;
     } on TimeoutException {
       state = state.copyWith(message: 'Истекло время ожидания VPN');

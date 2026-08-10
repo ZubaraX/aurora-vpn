@@ -200,26 +200,22 @@ class MainActivity : FlutterActivity() {
     private fun probeProxy(): Boolean {
         val port = AuroraVpnService.controllerPort()
         if (port <= 0) return false
-        // Two quick passes over the endpoint list: a working exit answers on the
-        // first pass in well under a second; a second pass only covers a cold
-        // first request (Reality handshake) without dragging the whole failover.
-        repeat(2) {
-            for (url in probeUrls) {
-                if (delayOk(port, url)) return true
-            }
-            try { Thread.sleep(250) } catch (_: InterruptedException) {
-                return false
-            }
-        }
-        return false
+        // Fast screen so failover stays quick: a working exit answers
+        // Cloudflare's captive-portal probe in well under a second. Try
+        // Cloudflare, then Google, then a single Cloudflare retry for a cold
+        // Reality handshake — each capped at ~2.5s.
+        if (delayOk(port, probeUrls[0])) return true
+        if (delayOk(port, probeUrls[1])) return true
+        try { Thread.sleep(200) } catch (_: InterruptedException) { return false }
+        return delayOk(port, probeUrls[0])
     }
 
     private fun delayOk(port: Int, encodedUrl: String): Boolean {
-        val path = "/proxies/proxy/delay?timeout=3500&url=$encodedUrl"
+        val path = "/proxies/proxy/delay?timeout=2000&url=$encodedUrl"
         return try {
             Socket().use { socket ->
-                socket.connect(InetSocketAddress("127.0.0.1", port), 1500)
-                socket.soTimeout = 5000
+                socket.connect(InetSocketAddress("127.0.0.1", port), 1000)
+                socket.soTimeout = 2500
                 val writer = socket.getOutputStream().bufferedWriter()
                 writer.write("GET $path HTTP/1.1\r\n")
                 writer.write("Host: 127.0.0.1:$port\r\n")
