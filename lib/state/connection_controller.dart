@@ -51,7 +51,23 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     });
     _statsSub = _engine.statsStream.listen((s) {
       state = state.copyWith(stats: s);
+      _maybeAutoRefresh();
     });
+  }
+
+  // Stats arrive from the native service every second and keep flowing while
+  // the app is backgrounded (the VPN foreground service keeps the process
+  // alive) — unlike a Dart Timer, which Android freezes in the background. So
+  // we hang the subscription refresh off this native clock: it keeps profiles
+  // current in the background where the periodic timer would be suspended.
+  DateTime _lastRefreshTick = DateTime.fromMillisecondsSinceEpoch(0);
+  void _maybeAutoRefresh() {
+    final now = DateTime.now();
+    if (now.difference(_lastRefreshTick) < const Duration(minutes: 10)) return;
+    _lastRefreshTick = now;
+    _ref
+        .read(profileProvider.notifier)
+        .refreshIfStale(maxAge: const Duration(minutes: 9));
   }
 
   final Ref _ref;
