@@ -112,6 +112,23 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     await _connectRequested(node);
   }
 
+  /// Regenerates the tunnel config with the current settings (e.g. after domain
+  /// zones / routing changed) by reloading the active node. No-op when not
+  /// connected. On Android this is an in-place libbox reload, so it applies
+  /// almost seamlessly.
+  Future<void> reapply() async {
+    if (!state.status.isActive) return;
+    final node =
+        _ref.read(profileProvider).nodeById(_desiredNodeId) ?? _resolveNode();
+    if (node == null) return;
+    _wantsConnection = true;
+    _desiredNodeId = node.id;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectPolicy.reset();
+    await _connectVerified(node);
+  }
+
   /// Connects to a specific node by id; empty/unknown id falls back to the
   /// normal resolution (used by trigger apps that target a chosen profile).
   Future<void> connectToId(String? nodeId) async {

@@ -321,7 +321,10 @@ class _DomainZonesCard extends ConsumerWidget {
                     IconButton(
                       icon: const Icon(Icons.close_rounded,
                           color: AppColors.mistDim, size: 18),
-                      onPressed: () => ctrl.removeDomainZoneRule(e.key),
+                      onPressed: () {
+                        ctrl.removeDomainZoneRule(e.key);
+                        ref.read(connectionProvider.notifier).reapply();
+                      },
                     ),
                   ],
                 ),
@@ -414,7 +417,10 @@ class _DomainZonesCard extends ConsumerWidget {
                 Text('Куда направить',
                     style: AppType.ui(12, color: AppColors.mist)),
                 const SizedBox(height: 8),
-                Flexible(
+                // Bounded height so the chip list scrolls cleanly inside the
+                // dialog instead of an unbounded Flexible (which rendered broken).
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 240),
                   child: SingleChildScrollView(
                     child: Wrap(
                       spacing: 8,
@@ -459,6 +465,9 @@ class _DomainZonesCard extends ConsumerWidget {
       final zone = controller.text.trim();
       if (zone.isNotEmpty) {
         ref.read(settingsProvider.notifier).setDomainZoneRule(zone, target);
+        // Apply immediately if connected, so the new rule takes effect without
+        // a manual reconnect.
+        ref.read(connectionProvider.notifier).reapply();
       }
     }
   }
