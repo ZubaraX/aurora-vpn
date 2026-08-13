@@ -52,6 +52,17 @@ class SettingsController extends StateNotifier<VpnSettings> {
     _commit(state.copyWith(domainZoneRules: map));
   }
 
+  /// Merges a whole set of zone→target rules in one commit (used by the
+  /// ready-made presets). Existing zones are overwritten.
+  void addDomainZoneRules(Map<String, String> rules) {
+    final map = {...state.domainZoneRules};
+    rules.forEach((zone, target) {
+      final key = _normalizeZone(zone);
+      if (key.isNotEmpty) map[key] = target;
+    });
+    _commit(state.copyWith(domainZoneRules: map));
+  }
+
   void removeDomainZoneRule(String zone) {
     final map = {...state.domainZoneRules}..remove(zone);
     _commit(state.copyWith(domainZoneRules: map));

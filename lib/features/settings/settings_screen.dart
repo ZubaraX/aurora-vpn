@@ -286,6 +286,52 @@ class _DomainZonesCard extends ConsumerWidget {
   };
   static const _presets = ['ru', 'рф', 'by', 'com', 'cn'];
 
+  /// Ready-made profile for users in Russia: local resources go DIRECT (many
+  /// reject foreign IPs and are simply faster that way), services that are
+  /// blocked locally go through the VPN. Applied on top of existing rules.
+  static const _russiaPreset = <String, String>{
+    // Local zones and Russian services hosted outside .ru
+    'ru': 'direct',
+    'рф': 'direct',
+    'su': 'direct',
+    'vk.com': 'direct',
+    'userapi.com': 'direct',
+    'vk-cdn.net': 'direct',
+    'vkuser.net': 'direct',
+    'mycdn.me': 'direct',
+    'yandex.net': 'direct',
+    'yandex.com': 'direct',
+    'yastatic.net': 'direct',
+    '2gis.com': 'direct',
+    'sberbank.com': 'direct',
+    'gosuslugi.net': 'direct',
+    'wildberries.am': 'direct',
+    // Blocked or throttled locally — route through the tunnel
+    'youtube.com': 'proxy',
+    'youtu.be': 'proxy',
+    'googlevideo.com': 'proxy',
+    'ytimg.com': 'proxy',
+    'ggpht.com': 'proxy',
+    'instagram.com': 'proxy',
+    'cdninstagram.com': 'proxy',
+    'facebook.com': 'proxy',
+    'fbcdn.net': 'proxy',
+    'twitter.com': 'proxy',
+    'x.com': 'proxy',
+    'twimg.com': 'proxy',
+    'discord.com': 'proxy',
+    'discord.gg': 'proxy',
+    'discordapp.net': 'proxy',
+    'linkedin.com': 'proxy',
+    'soundcloud.com': 'proxy',
+    'openai.com': 'proxy',
+    'chatgpt.com': 'proxy',
+    'claude.ai': 'proxy',
+    'anthropic.com': 'proxy',
+    'medium.com': 'proxy',
+    'notion.so': 'proxy',
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rules = ref.watch(settingsProvider).domainZoneRules;
@@ -314,10 +360,17 @@ class _DomainZonesCard extends ConsumerWidget {
                     const Icon(Icons.travel_explore_rounded,
                         color: AppColors.mist, size: 18),
                     const SizedBox(width: 10),
-                    Text('.${e.key}',
-                        style: AppType.mono(13, weight: FontWeight.w700)),
-                    const Spacer(),
-                    Flexible(child: _targetChip(e.value, nodes)),
+                    // The zone name yields space to the target chip, so the
+                    // target label ("Напрямую"/"Через VPN"/server) stays legible
+                    // instead of being clipped to "Напрям…".
+                    Expanded(
+                      child: Text('.${e.key}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.mono(13, weight: FontWeight.w700)),
+                    ),
+                    const SizedBox(width: 8),
+                    _targetChip(e.value, nodes),
                     IconButton(
                       icon: const Icon(Icons.close_rounded,
                           color: AppColors.mistDim, size: 18),
@@ -330,6 +383,25 @@ class _DomainZonesCard extends ConsumerWidget {
                 ),
               ),
           ],
+          const SizedBox(height: 12),
+          // One-tap profile tuned for Russia (local resources direct, blocked
+          // services through the tunnel).
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.auroraTeal,
+                side: const BorderSide(color: AppColors.hairlineStrong),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+              label: Text(
+                'Готовый профиль для России',
+                style: AppType.ui(13, weight: FontWeight.w700),
+              ),
+              onPressed: () => _applyRussiaPreset(context, ref),
+            ),
+          ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 8,
@@ -355,6 +427,40 @@ class _DomainZonesCard extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _applyRussiaPreset(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.slate,
+        title: Text('Профиль для России', style: AppType.display(18)),
+        content: Text(
+          'Добавит ${_russiaPreset.length} правил: российские сайты и сервисы '
+          '(.ru, .рф, VK, Яндекс, банки, 2ГИС) пойдут напрямую, а YouTube, '
+          'Instagram, Discord, ChatGPT и другие заблокированные — через VPN.\n\n'
+          'Ваши уже добавленные зоны сохранятся; совпадающие будут обновлены.',
+          style: AppType.ui(13, color: AppColors.mist),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Применить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    ref.read(settingsProvider.notifier).addDomainZoneRules(_russiaPreset);
+    ref.read(connectionProvider.notifier).reapply();
+    messenger.showSnackBar(
+      SnackBar(content: Text('Добавлено правил: ${_russiaPreset.length}')),
     );
   }
 
