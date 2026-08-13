@@ -50,6 +50,7 @@ class _RootShellState extends ConsumerState<RootShell>
   Timer? _triggerTimer;
   final _triggerMonitor = TriggerAppMonitor();
   bool _checkingTriggers = false;
+  DateTime _lastTriggerSwitch = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -111,6 +112,16 @@ class _RootShellState extends ConsumerState<RootShell>
   /// manual disconnect while the trigger app keeps running.
   Future<void> _checkTriggerApps() async {
     if (_checkingTriggers) return;
+    // Cool-down after a trigger-initiated switch. Flipping quickly between two
+    // trigger apps that use different servers (YouTube ↔ Telegram) otherwise
+    // restarts the core on every switch, so the tunnel never settles and the
+    // connection appears to drop. Skipping the evaluation entirely (rather than
+    // discarding the action) keeps the monitor's state intact, so the correct
+    // profile is still applied once things calm down.
+    if (DateTime.now().difference(_lastTriggerSwitch) <
+        const Duration(seconds: 20)) {
+      return;
+    }
     _checkingTriggers = true;
     try {
       final settings = ref.read(settingsProvider);
@@ -136,6 +147,7 @@ class _RootShellState extends ConsumerState<RootShell>
         activeNodeId: settings.activeNodeId,
       );
       if (action != null) {
+        _lastTriggerSwitch = DateTime.now();
         final notifier = ref.read(connectionProvider.notifier);
         if (action.disconnect) {
           // "No VPN" is configured for this app on this network.

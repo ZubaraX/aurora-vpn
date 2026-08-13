@@ -236,6 +236,18 @@ class ProfileController extends StateNotifier<ProfileState> {
       }
 
       final parsed = _parser.parseContent(resp.body, subscriptionId: sub.id);
+
+      // A 200 that yields no nodes is not an empty subscription — it is a
+      // captive-portal / white-list intercept page, a truncated body, or a
+      // provider error page. Replacing the stored nodes with nothing would wipe
+      // every server of this subscription, so all saved trigger profiles, zone
+      // rules and the active selection would stop resolving ("профили слетают",
+      // "узел удалён"). Keep what we have and let the next refresh fix it.
+      if (parsed.isEmpty && state.nodesOf(sub.id).isNotEmpty) {
+        _finishWithError('Подписка вернула пустой ответ — серверы сохранены');
+        return;
+      }
+
       final info = _parseUserInfo(resp.headers['subscription-userinfo']);
 
       final updated = sub.copyWith(

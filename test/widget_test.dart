@@ -68,6 +68,16 @@ void main() {
       expect(otherSni.id, isNot(renamed1.id));
     });
 
+    test('an intercept/error page yields no nodes', () {
+      // White-list networks answer the subscription URL with a portal page and
+      // HTTP 200. It must parse to zero nodes — ProfileController._fetch relies
+      // on that to detect the case and KEEP the stored servers instead of
+      // wiping them (which would orphan every saved trigger profile).
+      const page = '<!DOCTYPE html><html><body>Access denied</body></html>';
+      expect(parser.parseContent(page, subscriptionId: 'sub1'), isEmpty);
+      expect(parser.parseContent('', subscriptionId: 'sub1'), isEmpty);
+    });
+
     test('decodes a base64-wrapped subscription of multiple links', () {
       const inner =
           'vless://uuid@a.com:443?security=tls&sni=a.com#A\n'
