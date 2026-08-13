@@ -370,8 +370,23 @@ class _DomainZonesCard extends ConsumerWidget {
                           style: AppType.mono(13, weight: FontWeight.w700)),
                     ),
                     const SizedBox(width: 8),
-                    _targetChip(e.value, nodes),
+                    // Tap the target to change where this zone goes.
+                    GestureDetector(
+                      onTap: () => _showEditTarget(
+                          context, ref, e.key, e.value, nodes),
+                      child: _targetChip(e.value, nodes),
+                    ),
                     IconButton(
+                      tooltip: 'Изменить',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.edit_rounded,
+                          color: AppColors.mistDim, size: 17),
+                      onPressed: () => _showEditTarget(
+                          context, ref, e.key, e.value, nodes),
+                    ),
+                    IconButton(
+                      tooltip: 'Удалить',
+                      visualDensity: VisualDensity.compact,
                       icon: const Icon(Icons.close_rounded,
                           color: AppColors.mistDim, size: 18),
                       onPressed: () {
@@ -428,6 +443,77 @@ class _DomainZonesCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Changes where an existing zone is routed, keeping the zone itself.
+  Future<void> _showEditTarget(
+    BuildContext context,
+    WidgetRef ref,
+    String zone,
+    String current,
+    List<ProxyNode> nodes,
+  ) async {
+    var target = current;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: AppColors.slate,
+          title: Text('.$zone', style: AppType.mono(17, weight: FontWeight.w700)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Куда направить',
+                    style: AppType.ui(12, color: AppColors.mist)),
+                const SizedBox(height: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 260),
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final entry in _targets.entries)
+                          _choice(
+                            label: entry.value.$1,
+                            color: entry.value.$2,
+                            selected: target == entry.key,
+                            onTap: () => setState(() => target = entry.key),
+                          ),
+                        for (final n in nodes)
+                          _choice(
+                            label: CountryFlags.cleanName(n.name),
+                            color: AppColors.auroraTeal,
+                            selected: target == n.id,
+                            onTap: () => setState(() => target = n.id),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true && target != current) {
+      ref.read(settingsProvider.notifier).setDomainZoneRule(zone, target);
+      ref.read(connectionProvider.notifier).reapply();
+    }
   }
 
   Future<void> _applyRussiaPreset(BuildContext context, WidgetRef ref) async {
