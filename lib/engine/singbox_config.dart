@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../data/local/geo_assets.dart';
 import '../data/models/enums.dart';
 import '../data/models/proxy_node.dart';
 import '../data/models/vpn_settings.dart';
@@ -311,22 +312,35 @@ class SingBoxConfigBuilder {
     // engine, so routing them through the (already reachable, white-listed)
     // proxy server does not depend on the rule-sets themselves: no deadlock.
     // Results are persisted by `cache_file`, so this only costs the first fetch.
-    void add(String tag, String repo, String file) => sets.add({
-      'type': 'remote',
-      'tag': tag,
-      'format': 'binary',
-      // `rule-set` is the branch name. raw.githubusercontent.com URLs
-      // address it directly; inserting an extra `/raw/` returns 404 and
-      // prevents the core from starting.
-      'url': '$_geoBase/$repo/rule-set/$file.srs',
-      'download_detour': 'proxy',
-    });
+    // Prefer the rule-sets bundled with the app: a LOCAL file cannot be blocked
+    // and is available on the very first connect. Only fall back to fetching
+    // from GitHub if unpacking them failed.
+    final local = GeoAssets.ready;
+    void add(String tag, String repo, String file, String asset) => sets.add(
+      local
+          ? {
+              'type': 'local',
+              'tag': tag,
+              'format': 'binary',
+              'path': GeoAssets.pathOf(asset),
+            }
+          : {
+              'type': 'remote',
+              'tag': tag,
+              'format': 'binary',
+              // `rule-set` is the branch name. raw.githubusercontent.com URLs
+              // address it directly; inserting an extra `/raw/` returns 404 and
+              // prevents the core from starting.
+              'url': '$_geoBase/$repo/rule-set/$file.srs',
+              'download_detour': 'proxy',
+            },
+    );
     if (s.blockAds) {
-      add('geosite-ads', 'sing-geosite', 'geosite-category-ads-all');
+      add('geosite-ads', 'sing-geosite', 'geosite-category-ads-all', 'geosite-ads.srs');
     }
     if (s.routingMode == RoutingMode.rule) {
-      add('geosite-cn', 'sing-geosite', 'geosite-cn');
-      add('geoip-cn', 'sing-geoip', 'geoip-cn');
+      add('geosite-cn', 'sing-geosite', 'geosite-cn', 'geosite-cn.srs');
+      add('geoip-cn', 'sing-geoip', 'geoip-cn', 'geoip-cn.srs');
     }
     return sets;
   }

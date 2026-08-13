@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'data/local/app_paths.dart';
+import 'data/local/geo_assets.dart';
 import 'data/local/node_id_migration.dart';
 import 'data/local/storage.dart';
 import 'engine/engine_factory.dart';
@@ -17,6 +18,10 @@ Future<void> main() async {
     systemNavigationBarColor: Color(0xFF111726),
     systemNavigationBarIconBrightness: Brightness.light,
   ));
+
+  // Ship the geo rule-sets to disk before any config is generated, so smart
+  // routing never has to fetch them over a network that may block it.
+  await GeoAssets.unpack();
 
   final storage = Storage(AppPaths.dataDir());
   // Carry saved trigger profiles / zone rules / active selection across the
