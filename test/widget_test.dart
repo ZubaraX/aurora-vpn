@@ -187,6 +187,31 @@ void main() {
       );
     });
 
+    test('direct-routed zones also resolve via the direct DNS server', () {
+      final node =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      const settings = VpnSettings(domainZoneRules: {
+        'ru': 'direct',
+        'youtube.com': 'proxy',
+      });
+      final cfg =
+          const SingBoxConfigBuilder(isAndroid: true).build(node, settings);
+      final dnsRules = ((cfg['dns'] as Map)['rules'] as List).cast<Map>();
+      final direct = dnsRules.firstWhere(
+        (r) => r['server'] == 'direct' && r['domain_suffix'] is List,
+        orElse: () => const {},
+      );
+      expect(direct['domain_suffix'], contains('.ru'));
+      // Proxied zones must NOT be pinned to the direct resolver.
+      expect(
+        dnsRules.any((r) =>
+            r['server'] == 'direct' &&
+            r['domain_suffix'] is List &&
+            (r['domain_suffix'] as List).contains('.youtube.com')),
+        isFalse,
+      );
+    });
+
     test('converts an IDN zone to punycode (рф → xn--p1ai)', () {
       final node =
           parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
@@ -212,13 +237,23 @@ void main() {
       );
     });
 
-    test('route-time resolver is remote; server domain resolves direct', () {
+    test('resolution never depends on the tunnel (direct, plain UDP)', () {
+      // A dead server must not take DNS down with it: every lookup defaults to
+      // the direct plain-UDP resolver, which white-list networks permit and
+      // which keeps working when the proxy is unreachable.
       final node =
           parser.parseLink('vless://uuid@host.example:443?security=tls&sni=a.com#A')!;
       final cfg = const SingBoxConfigBuilder(isAndroid: true)
           .build(node, const VpnSettings());
+      final dns = cfg['dns'] as Map;
+      expect(dns['final'], 'direct');
+      final direct = (dns['servers'] as List)
+          .cast<Map>()
+          .firstWhere((s) => s['tag'] == 'direct');
+      expect(direct['type'], 'udp');
+      expect(direct['server'], kDefaultDirectDns);
       final route = cfg['route'] as Map;
-      expect((route['default_domain_resolver'] as Map)['server'], 'remote');
+      expect((route['default_domain_resolver'] as Map)['server'], 'direct');
       final proxy = (cfg['outbounds'] as List)
           .cast<Map>()
           .firstWhere((o) => o['tag'] == 'proxy');

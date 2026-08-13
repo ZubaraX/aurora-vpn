@@ -2,6 +2,15 @@ import 'package:flutter/material.dart';
 
 import 'enums.dart';
 
+/// Default resolver for direct (untunnelled) lookups: PLAIN UDP on port 53.
+/// White-list networks refuse DoH on :443, so an encrypted default made every
+/// direct lookup fail; plain DNS is what reference clients (Happ) use here.
+const String kDefaultDirectDns = '8.8.8.8';
+
+/// The encrypted default shipped before — migrated to [kDefaultDirectDns] on
+/// load, since it is unusable on restricted networks.
+const String kLegacyDirectDns = 'https://1.1.1.1/dns-query';
+
 /// Sentinel trigger-app profile meaning "keep the VPN OFF on this network".
 /// Lets a trigger use the tunnel on one network type but not the other.
 const String kTriggerNoVpn = '__novpn__';
@@ -23,7 +32,7 @@ class VpnSettings {
     this.blockAds = false,
     this.ipv6 = false,
     this.dnsRemote = 'https://1.1.1.1/dns-query',
-    this.dnsDirect = 'https://1.1.1.1/dns-query',
+    this.dnsDirect = kDefaultDirectDns,
     this.autoConnect = false,
     this.killSwitch = true,
     this.activeNodeId,
@@ -151,7 +160,12 @@ class VpnSettings {
     blockAds: _bool(j['blockAds'], false),
     ipv6: _bool(j['ipv6'], false),
     dnsRemote: _str(j['dnsRemote'], 'https://1.1.1.1/dns-query'),
-    dnsDirect: _str(j['dnsDirect'], 'https://1.1.1.1/dns-query'),
+    // Migrate the old encrypted direct resolver: on white-list networks it is
+    // refused (DoH :443), which broke every direct lookup.
+    dnsDirect: switch (_str(j['dnsDirect'], kDefaultDirectDns)) {
+      kLegacyDirectDns || '' => kDefaultDirectDns,
+      final v => v,
+    },
     autoConnect: _bool(j['autoConnect'], false),
     killSwitch: _bool(j['killSwitch'], true),
     activeNodeId: j['activeNodeId'] == null

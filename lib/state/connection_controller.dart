@@ -147,8 +147,15 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   /// probes are required so a single blip never causes a needless switch.
   void _startHealthWatch() {
     _healthTimer?.cancel();
+    // First check soon after connecting: when the server is unreachable on the
+    // current network every DNS query hangs for 10-30s, so the phone is
+    // effectively offline. Catching it in ~20s (and switching after the second
+    // failure) beats waiting a full minute per probe.
+    Timer(const Duration(seconds: 20), () {
+      if (state.status == ConnectionStatus.connected) unawaited(_healthCheck());
+    });
     _healthTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 45),
       (_) => unawaited(_healthCheck()),
     );
   }

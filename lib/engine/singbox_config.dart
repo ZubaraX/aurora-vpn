@@ -80,6 +80,20 @@ class SingBoxConfigBuilder {
     if (s.routingMode == RoutingMode.rule) {
       rules.add({'rule_set': 'geosite-cn', 'server': 'direct'});
     }
+    // Domains the user routes DIRECT must also RESOLVE directly. Otherwise
+    // their lookups go through the tunnel, so an unreachable server makes even
+    // direct traffic hang for 10-30s per query and the device looks offline —
+    // exactly what the "Россия" profile is meant to avoid.
+    final directZones = <String>[];
+    s.domainZoneRules.forEach((zone, target) {
+      if (target != 'direct') return;
+      final z = _toAsciiDomain(zone.trim().toLowerCase());
+      if (z.isEmpty) return;
+      directZones.addAll(z.contains('.') ? ['.$z', z] : ['.$z']);
+    });
+    if (directZones.isNotEmpty) {
+      rules.add({'domain_suffix': directZones, 'server': 'direct'});
+    }
     return {
       'servers': [
         _dnsServer('remote', s.dnsRemote, 'proxy'),
@@ -91,7 +105,14 @@ class SingBoxConfigBuilder {
         _dnsServer('direct', s.dnsDirect, null),
       ],
       'rules': rules,
-      'final': 'remote',
+      // Resolve through the DIRECT server by default (plain UDP, see
+      // VpnSettings.dnsDirect). Sending every lookup through the tunnel means a
+      // server that goes unreachable hangs each query for 10-30s and the device
+      // looks offline; a direct plain-DNS path cannot be taken down with the
+      // tunnel and is not refused by white-list networks the way DoH:443 is.
+      // This mirrors what Happ does (single 8.8.8.8 server, detour "direct").
+      // The encrypted 'remote' server stays for Global mode.
+      'final': 'direct',
     };
   }
 
@@ -235,7 +256,7 @@ class SingBoxConfigBuilder {
       // proxy server's OWN domain still resolves via 'direct' (set per-outbound)
       // to avoid a resolve-through-itself loop.
       'default_domain_resolver': {
-        'server': 'remote',
+        'server': 'direct',
         'strategy': s.ipv6 ? 'prefer_ipv4' : 'ipv4_only',
       },
     };
