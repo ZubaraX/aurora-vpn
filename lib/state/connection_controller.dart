@@ -43,6 +43,13 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     : super(const ConnectionUiState()) {
     _statusSub = _engine.statusStream.listen((s) {
       state = state.copyWith(status: s);
+      if (s == ConnectionStatus.connected) {
+        _healthFailures = 0;
+        _startHealthWatch();
+      } else {
+        _healthTimer?.cancel();
+        _healthTimer = null;
+      }
       if ((s == ConnectionStatus.error || s == ConnectionStatus.disconnected) &&
           _wantsConnection &&
           !_transitioning) {
@@ -77,6 +84,9 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   int _operation = 0;
   final _reconnectPolicy = ReconnectPolicy();
   Timer? _reconnectTimer;
+  Timer? _healthTimer;
+  int _healthFailures = 0;
+  bool _healthChecking = false;
   bool _wantsConnection = false;
   bool _transitioning = false;
   String? _desiredNodeId;
@@ -126,6 +136,65 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
 
   Future<void> connectTo(ProxyNode node) async {
     await _connectRequested(node);
+  }
+
+  /// Watches the live tunnel and switches servers when the active one stops
+  /// passing traffic.
+  ///
+  /// Until now the traffic check only ran at connect time, so a server that
+  /// died mid-session (gateway 504s, refused dials, timeouts) left the tunnel
+  /// "connected" but useless until the user intervened. Two consecutive failed
+  /// probes are required so a single blip never causes a needless switch.
+  void _startHealthWatch() {
+    _healthTimer?.cancel();
+    _healthTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => unawaited(_healthCheck()),
+    );
+  }
+
+  Future<void> _healthCheck() async {
+    if (_healthChecking ||
+        _transitioning ||
+        state.status != ConnectionStatus.connected) {
+      return;
+    }
+    _healthChecking = true;
+    try {
+      final ok = await _engine.verifyConnection();
+      if (_transitioning || state.status != ConnectionStatus.connected) return;
+      if (ok) {
+        _healthFailures = 0;
+        return;
+      }
+      if (++_healthFailures < 2) return;
+      _healthFailures = 0;
+
+      // Prefer the user's failover pool (rotated past the failing node);
+      // otherwise fall back to other servers, keeping the current one last.
+      final current = _ref.read(profileProvider).nodeById(_desiredNodeId);
+      final pool = _rotatedDesiredCandidates();
+      final List<ProxyNode> candidates;
+      if (pool.isNotEmpty) {
+        candidates = pool;
+      } else if (current != null) {
+        candidates = [
+          ..._fallbackCandidates(current).where((n) => n.id != current.id).take(3),
+          current,
+        ];
+      } else {
+        return;
+      }
+      if (candidates.length < 2) return;
+      state = state.copyWith(
+        message: 'Сервер перестал передавать трафик — переключаемся',
+      );
+      await _connectVerified(candidates.first, candidatesOverride: candidates);
+    } catch (_) {
+      // Never let a health check break the live tunnel.
+    } finally {
+      _healthChecking = false;
+    }
   }
 
   /// Regenerates the tunnel config with the current settings (e.g. after domain
@@ -460,6 +529,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   @override
   void dispose() {
     _reconnectTimer?.cancel();
+    _healthTimer?.cancel();
     _statusSub?.cancel();
     _statsSub?.cancel();
     super.dispose();
