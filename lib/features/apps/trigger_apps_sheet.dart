@@ -325,8 +325,10 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
         ? 'Без VPN'
         : profileId.isEmpty
             ? 'Текущий сервер'
+            // The id is kept: the server may simply be absent from the latest
+            // subscription refresh and come back on the next one.
             : (profileNode == null
-                  ? 'узел удалён'
+                  ? 'сервер недоступен'
                   : CountryFlags.cleanName(profileNode.name));
 
     return Row(
@@ -400,12 +402,21 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
         .map((id) => byId[id])
         .whereType<ProxyNode>()
         .toList();
+    // Count every saved id, not just the ones that resolve right now: a server
+    // missing from the latest subscription refresh is temporarily unavailable,
+    // not removed, and the pool still holds it.
+    final total = profileIds.where((id) => id.isNotEmpty).length;
+    final missing = total - selected.length;
     final label = noVpn
         ? 'Без VPN'
-        : switch (selected.length) {
+        : switch (total) {
             0 => 'Текущий сервер',
-            1 => CountryFlags.cleanName(selected.first.name),
-            _ => '${selected.length} серверов · автоподбор',
+            1 => selected.isEmpty
+                ? 'сервер недоступен'
+                : CountryFlags.cleanName(selected.first.name),
+            _ => missing > 0
+                ? '$total серверов · $missing недоступно'
+                : '$total серверов · автоподбор',
           };
 
     return Row(
@@ -459,9 +470,14 @@ class _TriggerAppsSheetState extends ConsumerState<TriggerAppsSheet>
     required List<ProxyNode> nodes,
     required SettingsController ctrl,
   }) async {
+    // Keep ids that do not currently resolve to a node. A subscription refresh
+    // can temporarily omit a server (or return it under a changed config), and
+    // dropping those ids here would PERMANENTLY delete them from the pool the
+    // moment the user pressed save — the "галочки удаляются сами" complaint.
+    // They stay selected, invisible in the list, and are written back intact.
     final selected = <String>{
       for (final id in selectedIds)
-        if (nodes.any((node) => node.id == id)) id,
+        if (id.isNotEmpty) id,
     };
     var query = '';
 
