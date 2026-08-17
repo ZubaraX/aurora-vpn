@@ -30,8 +30,16 @@ class GeoAssets {
       '${dir().path}${Platform.pathSeparator}$name';
 
   /// True once every rule-set is present on disk.
-  static bool get ready =>
-      _names.every((n) => File(pathOf(n)).existsSync());
+  /// Guarded so it can also be evaluated outside a Flutter app (the CI config
+  /// validator builds configs in a plain Dart VM): any failure just means the
+  /// bundled sets are unavailable and the remote fallback is used.
+  static bool get ready {
+    try {
+      return _names.every((n) => File(pathOf(n)).existsSync());
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Copies any missing rule-set out of the bundle. Cheap after the first run
   /// (existing files are left alone) and safe to call on every launch; failures
