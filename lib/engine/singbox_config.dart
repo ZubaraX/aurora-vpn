@@ -172,13 +172,24 @@ class SingBoxConfigBuilder {
     };
 
     // Android exposes per-app routing directly on the TUN inbound.
-    if (isAndroid &&
-        s.perAppMode != PerAppMode.off &&
-        s.perAppSelected.isNotEmpty) {
-      final key = s.perAppMode == PerAppMode.allowlist
-          ? 'include_package'
-          : 'exclude_package';
-      tun[key] = s.perAppSelected.toList();
+    //
+    // `bypassPackages` (a trigger app set to "Без VPN") is layered on top of
+    // whatever mode is active: excluded from the tunnel, or dropped from the
+    // allow-list. That app then goes direct while the tunnel stays up for
+    // everyone else — tearing the whole VPN down for it was far too blunt.
+    if (isAndroid) {
+      final bypass = s.bypassPackages;
+      if (s.perAppMode == PerAppMode.allowlist && s.perAppSelected.isNotEmpty) {
+        final include =
+            s.perAppSelected.where((p) => !bypass.contains(p)).toList();
+        if (include.isNotEmpty) tun['include_package'] = include;
+      } else {
+        final exclude = <String>{
+          if (s.perAppMode == PerAppMode.blocklist) ...s.perAppSelected,
+          ...bypass,
+        };
+        if (exclude.isNotEmpty) tun['exclude_package'] = exclude.toList();
+      }
     }
     return tun;
   }

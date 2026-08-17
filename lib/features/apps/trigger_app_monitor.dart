@@ -13,8 +13,8 @@ class TriggerSwitch {
   final String networkType;
   final List<String> profileIds;
 
-  /// The trigger is set to "no VPN" for this network: tear the tunnel down
-  /// instead of connecting.
+  /// The trigger is set to "no VPN" for this network: route THIS app around
+  /// the tunnel and leave the VPN running for everything else.
   final bool disconnect;
 
   String get profileId => profileIds.isEmpty ? '' : profileIds.first;
@@ -92,9 +92,8 @@ class TriggerAppMonitor {
   ) {
     final noVpn = resolved.length == 1 && resolved.first == kTriggerNoVpn;
     if (noVpn) {
-      // Only act if the tunnel is currently up — otherwise there is nothing to
-      // turn off.
-      if (!connectionStatus.isActive) return null;
+      // Always emit: the app must be routed around the tunnel whether or not
+      // the VPN happens to be up right now.
       return TriggerSwitch(
         appId: appId,
         networkType: networkType,

@@ -132,7 +132,10 @@ void main() {
       expect(action?.profileIds, isEmpty);
     });
 
-    test('no-VPN network does nothing when already disconnected', () {
+    test('no-VPN app is bypassed even while the tunnel is down', () {
+      // The app is routed around the tunnel regardless of connection state —
+      // we no longer tear the whole VPN down for it, so there is always an
+      // action to apply.
       final monitor = TriggerAppMonitor();
       final action = monitor.evaluate(
         settings: noVpnSettings,
@@ -141,7 +144,8 @@ void main() {
         connectionStatus: ConnectionStatus.disconnected,
         activeNodeId: null,
       );
-      expect(action, isNull);
+      expect(action?.disconnect, isTrue);
+      expect(action?.appId, 'com.example.video');
     });
 
     test('switching from no-VPN mobile to Wi-Fi connects the Wi-Fi server', () {

@@ -21,6 +21,7 @@ class VpnSettings {
     this.routingMode = RoutingMode.rule,
     this.perAppMode = PerAppMode.off,
     this.perAppSelected = const {},
+    this.bypassPackages = const {},
     this.collapsedSubs = const {},
     this.domainZoneRules = const {},
     this.triggerApps = const {},
@@ -43,6 +44,11 @@ class VpnSettings {
   final RoutingMode routingMode;
   final PerAppMode perAppMode;
   final Set<String> perAppSelected;
+
+  /// Packages that must bypass the tunnel while it stays up. Used by trigger
+  /// apps set to "Без VPN": that app goes direct, everyone else keeps the VPN,
+  /// instead of tearing the whole tunnel down.
+  final Set<String> bypassPackages;
 
   /// Ids of subscriptions whose server list is collapsed/hidden in the UI.
   final Set<String> collapsedSubs;
@@ -76,6 +82,7 @@ class VpnSettings {
     RoutingMode? routingMode,
     PerAppMode? perAppMode,
     Set<String>? perAppSelected,
+    Set<String>? bypassPackages,
     Set<String>? collapsedSubs,
     Map<String, String>? domainZoneRules,
     Map<String, String>? triggerApps,
@@ -98,6 +105,7 @@ class VpnSettings {
     routingMode: routingMode ?? this.routingMode,
     perAppMode: perAppMode ?? this.perAppMode,
     perAppSelected: perAppSelected ?? this.perAppSelected,
+    bypassPackages: bypassPackages ?? this.bypassPackages,
     collapsedSubs: collapsedSubs ?? this.collapsedSubs,
     domainZoneRules: domainZoneRules ?? this.domainZoneRules,
     triggerApps: triggerApps ?? this.triggerApps,
@@ -121,6 +129,7 @@ class VpnSettings {
     'routingMode': routingMode.name,
     'perAppMode': perAppMode.name,
     'perAppSelected': perAppSelected.toList(),
+    'bypassPackages': bypassPackages.toList(),
     'collapsedSubs': collapsedSubs.toList(),
     'domainZoneRules': domainZoneRules,
     'triggerApps': triggerApps,
@@ -148,6 +157,7 @@ class VpnSettings {
     routingMode: _enum(RoutingMode.values, j['routingMode'], RoutingMode.rule),
     perAppMode: _enum(PerAppMode.values, j['perAppMode'], PerAppMode.off),
     perAppSelected: _stringList(j['perAppSelected']).toSet(),
+    bypassPackages: _stringList(j['bypassPackages']).toSet(),
     collapsedSubs: _stringList(j['collapsedSubs']).toSet(),
     domainZoneRules: _migValues(_stringMap(j['domainZoneRules'])),
     triggerApps: _migValues(_stringMap(j['triggerApps'])),

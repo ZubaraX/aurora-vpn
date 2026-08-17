@@ -149,10 +149,16 @@ class _RootShellState extends ConsumerState<RootShell>
       if (action != null) {
         _lastTriggerSwitch = DateTime.now();
         final notifier = ref.read(connectionProvider.notifier);
+        final settingsCtrl = ref.read(settingsProvider.notifier);
         if (action.disconnect) {
-          // "No VPN" is configured for this app on this network.
-          await notifier.disconnect();
+          // "Без VPN" for this app on this network: send just this app around
+          // the tunnel and keep the VPN up for everything else. Killing the
+          // whole tunnel meant the user had to turn it back on by hand.
+          settingsCtrl.setBypassPackage(action.appId, true);
+          await notifier.reapply();
         } else {
+          // Leaving a no-VPN app: stop bypassing it again.
+          settingsCtrl.setBypassPackage(action.appId, false);
           await notifier.connectToIds(action.profileIds);
         }
       }
