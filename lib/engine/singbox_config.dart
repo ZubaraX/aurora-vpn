@@ -106,14 +106,15 @@ class SingBoxConfigBuilder {
         _dnsServer('direct', s.dnsDirect, null),
       ],
       'rules': rules,
-      // Resolve through the DIRECT server by default (plain UDP, see
-      // VpnSettings.dnsDirect). Sending every lookup through the tunnel means a
-      // server that goes unreachable hangs each query for 10-30s and the device
-      // looks offline; a direct plain-DNS path cannot be taken down with the
-      // tunnel and is not refused by white-list networks the way DoH:443 is.
-      // This mirrors what Happ does (single 8.8.8.8 server, detour "direct").
-      // The encrypted 'remote' server stays for Global mode.
-      'final': 'direct',
+      // Anything not pinned to the direct resolver above is resolved THROUGH
+      // THE TUNNEL. Censored domains (youtube/googlevideo/instagram...) get
+      // poisoned answers from the local network, so resolving them directly
+      // returns bogus addresses and the site fails even in Global mode — while
+      // an uncensored app like Telegram keeps working, which is exactly the
+      // "some apps work, others don't" symptom. Direct-routed zones (the
+      // Россия profile, geosite-cn, LAN) still use the direct resolver above,
+      // so they keep working when the tunnel is down.
+      'final': 'remote',
     };
   }
 

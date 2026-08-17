@@ -237,16 +237,16 @@ void main() {
       );
     });
 
-    test('resolution never depends on the tunnel (direct, plain UDP)', () {
-      // A dead server must not take DNS down with it: every lookup defaults to
-      // the direct plain-UDP resolver, which white-list networks permit and
-      // which keeps working when the proxy is unreachable.
+    test('censored domains resolve through the tunnel, direct zones do not', () {
+      // Local DNS poisons censored domains, so they must resolve through the
+      // tunnel; the direct resolver is plain UDP (white-list networks refuse
+      // DoH:443) and serves the zones the user routes directly.
       final node =
           parser.parseLink('vless://uuid@host.example:443?security=tls&sni=a.com#A')!;
       final cfg = const SingBoxConfigBuilder(isAndroid: true)
           .build(node, const VpnSettings());
       final dns = cfg['dns'] as Map;
-      expect(dns['final'], 'direct');
+      expect(dns['final'], 'remote');
       final direct = (dns['servers'] as List)
           .cast<Map>()
           .firstWhere((s) => s['tag'] == 'direct');
