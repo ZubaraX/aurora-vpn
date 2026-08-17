@@ -49,6 +49,7 @@ class MainActivity : FlutterActivity() {
     private val STATS_CHANNEL = "aurora/vpn/stats"
     private val APPS_CHANNEL = "aurora/apps"
     private val VPN_REQUEST = 0x0A11
+    private val NOTIFICATION_REQUEST = 0x0A13
 
     private var pendingConfig: String? = null
     private var pendingTitle: String? = null
@@ -69,7 +70,26 @@ class MainActivity : FlutterActivity() {
             prev?.uncaughtException(thread, e)
         }
         super.onCreate(savedInstanceState)
+        ensureNotificationPermission()
         handleTileIntent(intent)
+    }
+
+    /**
+     * Asks for POST_NOTIFICATIONS once on Android 13+.
+     *
+     * The permission was declared in the manifest but never requested, so on
+     * Android 13+ it stays denied and the system drops our notifications —
+     * which is why the tunnel status and the "update available" message never
+     * appeared. Only asked when not already granted; Android itself stops
+     * re-prompting once the user has answered, so this never nags.
+     */
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        try {
+            val perm = android.Manifest.permission.POST_NOTIFICATIONS
+            if (checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) return
+            requestPermissions(arrayOf(perm), NOTIFICATION_REQUEST)
+        } catch (_: Throwable) {}
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
