@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../data/models/enums.dart';
 import '../../state/connection_controller.dart';
 import '../../state/profile_controller.dart';
 import '../../state/providers.dart';
@@ -48,9 +49,12 @@ class _RootShellState extends ConsumerState<RootShell>
   ];
 
   Timer? _triggerTimer;
+  Timer? _updateTimer;
   final _triggerMonitor = TriggerAppMonitor();
   bool _checkingTriggers = false;
+  bool _checkingUpdate = false;
   DateTime _lastTriggerSwitch = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastUpdateCheck = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -59,28 +63,50 @@ class _RootShellState extends ConsumerState<RootShell>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeAutoConnect();
       _checkTriggerApps();
-      _checkForUpdate();
+      _checkForUpdate(delay: const Duration(seconds: 4));
     });
     _triggerTimer = Timer.periodic(
       const Duration(seconds: 3),
       (_) => _checkTriggerApps(),
     );
+    _updateTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => _checkForUpdate(),
+    );
   }
 
-  Future<void> _checkForUpdate() async {
-    await Future.delayed(const Duration(seconds: 4));
-    if (!mounted) return;
-    final info = await ref.read(updateServiceProvider).check();
-    if (!mounted || info == null) return;
-    // Surface it as a persistent banner on the home screen (see _UpdateBanner)
-    // instead of an intrusive dialog on every launch.
-    ref.read(updateAvailableProvider.notifier).state = info;
-    // Also push a shade notification — once per version, so it isn't repeated
-    // on every launch while the same update stays pending.
-    final storage = ref.read(storageProvider);
-    if (storage.readMap('aurora.update')?['notified'] != info.version) {
-      await ref.read(updateServiceProvider).notifyAvailable(info.version);
-      await storage.writeJson('aurora.update', {'notified': info.version});
+  /// Looks for a newer release, and keeps looking until it finds one.
+  ///
+  /// A single attempt at launch reached almost nobody: GitHub is typically
+  /// unreachable on a restricted network until the tunnel is up, and four
+  /// seconds in it rarely is — so the one attempt failed silently and no banner
+  /// or notification ever appeared. Now the check also runs when the tunnel
+  /// comes up, when the app is resumed, and every 30 minutes.
+  Future<void> _checkForUpdate({Duration delay = Duration.zero}) async {
+    if (_checkingUpdate) return;
+    // Already found — the banner stays until the user updates.
+    if (ref.read(updateAvailableProvider) != null) return;
+    final now = DateTime.now();
+    if (now.difference(_lastUpdateCheck) < const Duration(minutes: 2)) return;
+    _lastUpdateCheck = now;
+    _checkingUpdate = true;
+    try {
+      if (delay > Duration.zero) await Future.delayed(delay);
+      if (!mounted) return;
+      final info = await ref.read(updateServiceProvider).check();
+      if (!mounted || info == null) return;
+      // Surface it as a persistent banner on the home screen (see _UpdateBanner)
+      // instead of an intrusive dialog on every launch.
+      ref.read(updateAvailableProvider.notifier).state = info;
+      // Also push a shade notification — once per version, so it isn't repeated
+      // on every launch while the same update stays pending.
+      final storage = ref.read(storageProvider);
+      if (storage.readMap('aurora.update')?['notified'] != info.version) {
+        await ref.read(updateServiceProvider).notifyAvailable(info.version);
+        await storage.writeJson('aurora.update', {'notified': info.version});
+      }
+    } finally {
+      _checkingUpdate = false;
     }
   }
 
@@ -88,6 +114,7 @@ class _RootShellState extends ConsumerState<RootShell>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _triggerTimer?.cancel();
+    _updateTimer?.cancel();
     super.dispose();
   }
 
@@ -98,6 +125,7 @@ class _RootShellState extends ConsumerState<RootShell>
         .read(profileProvider.notifier)
         .refreshIfStale(maxAge: const Duration(minutes: 2));
     _checkTriggerApps();
+    _checkForUpdate();
   }
 
   void _maybeAutoConnect() {
@@ -154,12 +182,25 @@ class _RootShellState extends ConsumerState<RootShell>
           // "Без VPN" for this app on this network: send just this app around
           // the tunnel and keep the VPN up for everything else. Killing the
           // whole tunnel meant the user had to turn it back on by hand.
-          settingsCtrl.setBypassPackage(action.appId, true);
-          await notifier.reapply();
+          //
+          // Reload only when the bypass set really changed: a trigger app that
+          // stays in the foreground is re-evaluated every cool-down window, and
+          // reloading each time restarted the core under live traffic.
+          if (settingsCtrl.setBypassPackage(action.appId, true)) {
+            await notifier.reapply();
+          }
         } else {
           // Leaving a no-VPN app: stop bypassing it again.
-          settingsCtrl.setBypassPackage(action.appId, false);
+          final unbypassed = settingsCtrl.setBypassPackage(action.appId, false);
+          final before = ref.read(settingsProvider).activeNodeId;
           await notifier.connectToIds(action.profileIds);
+          // connectToIds is a no-op when the pool is already connected, so the
+          // dropped bypass would never reach the core — reload it ourselves.
+          if (unbypassed &&
+              ref.read(settingsProvider).activeNodeId == before &&
+              ref.read(connectionProvider).status.isActive) {
+            await notifier.reapply();
+          }
         }
       }
     } finally {
@@ -169,6 +210,13 @@ class _RootShellState extends ConsumerState<RootShell>
 
   @override
   Widget build(BuildContext context) {
+    // On a restricted network GitHub is typically only reachable through the
+    // tunnel, so a fresh connection is the moment a check can finally succeed.
+    ref.listen(connectionProvider.select((s) => s.status), (_, status) {
+      if (status == ConnectionStatus.connected) {
+        _checkForUpdate(delay: const Duration(seconds: 3));
+      }
+    });
     final index = ref.watch(navIndexProvider);
     final wide = MediaQuery.sizeOf(context).width >= 760;
 

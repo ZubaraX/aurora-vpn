@@ -77,7 +77,7 @@ class SimulatedEngine extends VpnEngine {
   }
 
   @override
-  Future<bool> verifyConnection() async => true;
+  Future<bool> verifyConnection({bool thorough = false}) async => true;
 
   void _startTicker() {
     _ticker?.cancel();

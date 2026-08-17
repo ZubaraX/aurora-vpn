@@ -6,6 +6,7 @@ import '../data/models/connection_stats.dart';
 import '../data/models/enums.dart';
 import '../data/models/proxy_node.dart';
 import '../engine/reconnect_policy.dart';
+import '../engine/tunnel_health.dart';
 import '../engine/vpn_engine.dart';
 import '../engine/windows_engine.dart';
 import 'profile_controller.dart';
@@ -44,7 +45,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     _statusSub = _engine.statusStream.listen((s) {
       state = state.copyWith(status: s);
       if (s == ConnectionStatus.connected) {
-        _healthFailures = 0;
+        _health.reset();
         _startHealthWatch();
       } else {
         _healthTimer?.cancel();
@@ -85,7 +86,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   final _reconnectPolicy = ReconnectPolicy();
   Timer? _reconnectTimer;
   Timer? _healthTimer;
-  int _healthFailures = 0;
+  final _health = TunnelHealth();
   bool _healthChecking = false;
   bool _wantsConnection = false;
   bool _transitioning = false;
@@ -187,18 +188,21 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
           status: ConnectionStatus.disconnected,
           message: 'Система отключила VPN — переподключаемся',
         );
-        _healthFailures = 0;
+        _health.reset();
         if (_wantsConnection) _scheduleReconnect();
         return;
       }
-      final ok = await _engine.verifyConnection();
+      // Thorough probe here: a live tunnel must not be torn down over a tight
+      // deadline. Connect-time candidate screening keeps the fast probe.
+      final ok = await _engine.verifyConnection(thorough: true);
       if (_transitioning || state.status != ConnectionStatus.connected) return;
-      if (ok) {
-        _healthFailures = 0;
-        return;
-      }
-      if (++_healthFailures < 2) return;
-      _healthFailures = 0;
+      final stats = state.stats;
+      final switchServer = _health.sample(
+        probeOk: ok,
+        totalBytes: stats.uploadTotal + stats.downloadTotal,
+      );
+      if (!switchServer) return;
+      _health.reset();
 
       // Prefer the user's failover pool (rotated past the failing node);
       // otherwise fall back to other servers, keeping the current one last.

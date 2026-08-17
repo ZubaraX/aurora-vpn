@@ -132,9 +132,12 @@ class AndroidVpnEngine extends VpnEngine {
   }
 
   @override
-  Future<bool> verifyConnection() async {
+  Future<bool> verifyConnection({bool thorough = false}) async {
     try {
-      return await _method.invokeMethod<bool>('probe') ?? false;
+      return await _method.invokeMethod<bool>('probe', {
+            'thorough': thorough,
+          }) ??
+          false;
     } catch (_) {
       return false;
     }

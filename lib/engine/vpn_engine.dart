@@ -65,7 +65,12 @@ abstract class VpnEngine {
   }
 
   /// Verifies that the selected outbound can carry an HTTPS request.
-  Future<bool> verifyConnection();
+  ///
+  /// [thorough] trades speed for certainty: a cold dial through a cellular exit
+  /// routinely needs ~3s, so the quick screen used while picking a candidate
+  /// would condemn working servers if it also decided the fate of a live
+  /// tunnel. Watchdog callers pass true.
+  Future<bool> verifyConnection({bool thorough = false});
 
   /// Whether a VPN interface actually exists right now.
   ///

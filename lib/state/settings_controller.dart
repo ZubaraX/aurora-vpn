@@ -76,10 +76,14 @@ class SettingsController extends StateNotifier<VpnSettings> {
   }
 
   /// Routes [id] around the tunnel without disconnecting it (trigger "Без VPN").
-  void setBypassPackage(String id, bool bypass) {
+  ///
+  /// Returns whether the bypass set actually changed, so callers can skip
+  /// reloading the core when there is nothing new to apply.
+  bool setBypassPackage(String id, bool bypass) {
     final set = {...state.bypassPackages};
-    if (bypass ? !set.add(id) : !set.remove(id)) return;
+    if (bypass ? !set.add(id) : !set.remove(id)) return false;
     _commit(state.copyWith(bypassPackages: set));
+    return true;
   }
 
   void toggleApp(String id) {

@@ -100,10 +100,13 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "ping" -> result.success(true)
                 "alive" -> result.success(AuroraVpnService.isTunnelAlive())
-                "probe" -> Thread({
-                    val reachable = probeProxy()
-                    runOnUiThread { result.success(reachable) }
-                }, "aurora-probe").start()
+                "probe" -> {
+                    val thorough = call.argument<Boolean>("thorough") ?: false
+                    Thread({
+                        val reachable = probeProxy(thorough)
+                        runOnUiThread { result.success(reachable) }
+                    }, "aurora-probe").start()
+                }
                 "start" -> {
                     pendingConfig = call.argument<String>("config")
                     pendingTitle = call.argument<String>("title")
@@ -218,25 +221,32 @@ class MainActivity : FlutterActivity() {
         "https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204",
     )
 
-    private fun probeProxy(): Boolean {
+    /**
+     * @param thorough confirm a failure with a realistic deadline before
+     *   reporting it. Every delay request dials the exit from scratch — DNS,
+     *   Reality handshake, TLS — which measured ~3s on a cellular link, so the
+     *   2s screen reported "dead" for exits that were serving 500 KB/s. Quick
+     *   screening (picking among candidates) keeps the short budget; the
+     *   watchdog that can tear down a live tunnel pays for certainty.
+     */
+    private fun probeProxy(thorough: Boolean): Boolean {
         val port = AuroraVpnService.controllerPort()
         if (port <= 0) return false
-        // Fast screen so failover stays quick: a working exit answers
-        // Cloudflare's captive-portal probe in well under a second. Try
-        // Cloudflare, then Google, then a single Cloudflare retry for a cold
-        // Reality handshake — each capped at ~2.5s.
-        if (delayOk(port, probeUrls[0])) return true
-        if (delayOk(port, probeUrls[1])) return true
+        // Fast path first either way: a warm exit answers Cloudflare's
+        // captive-portal probe in a few hundred milliseconds.
+        if (delayOk(port, probeUrls[0], 2000)) return true
+        if (!thorough) return delayOk(port, probeUrls[1], 2000)
         try { Thread.sleep(200) } catch (_: InterruptedException) { return false }
-        return delayOk(port, probeUrls[0])
+        if (delayOk(port, probeUrls[0], 6000)) return true
+        return delayOk(port, probeUrls[1], 6000)
     }
 
-    private fun delayOk(port: Int, encodedUrl: String): Boolean {
-        val path = "/proxies/proxy/delay?timeout=2000&url=$encodedUrl"
+    private fun delayOk(port: Int, encodedUrl: String, timeoutMs: Int): Boolean {
+        val path = "/proxies/proxy/delay?timeout=$timeoutMs&url=$encodedUrl"
         return try {
             Socket().use { socket ->
                 socket.connect(InetSocketAddress("127.0.0.1", port), 1000)
-                socket.soTimeout = 2500
+                socket.soTimeout = timeoutMs + 500
                 val writer = socket.getOutputStream().bufferedWriter()
                 writer.write("GET $path HTTP/1.1\r\n")
                 writer.write("Host: 127.0.0.1:$port\r\n")

@@ -2,7 +2,7 @@ name: aurora
 description: "Aurora — a premium universal proxy client (sing-box core) with subscriptions and per-app routing."
 publish_to: 'none'
 
-version: 1.8.2+42
+version: 1.8.3+43
 
 environment:
   sdk: ^3.12.2
