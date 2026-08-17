@@ -140,72 +140,78 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                           style: AppType.ui(13, color: AppColors.mist),
                         ),
                         const SizedBox(height: 16),
-                        GlassCard(
-                          onTap: () => TriggerAppsSheet.show(context),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.rocket_launch_rounded,
-                                color: AppColors.auroraTeal,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Автоподключение при запуске',
-                                      style: AppType.ui(
-                                        14,
-                                        weight: FontWeight.w700,
+                        // Trigger apps ("auto-connect when an app opens") rely on
+                        // Android foreground-app detection (usage access); there
+                        // is no equivalent on desktop, so hide the card there.
+                        if (Platform.isAndroid) ...[
+                          GlassCard(
+                            onTap: () => TriggerAppsSheet.show(context),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.rocket_launch_rounded,
+                                  color: AppColors.auroraTeal,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Автоподключение при запуске',
+                                        style: AppType.ui(
+                                          14,
+                                          weight: FontWeight.w700,
+                                        ),
                                       ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        'VPN включится сам, когда откроется выбранное приложение',
+                                        style: AppType.ui(
+                                          12,
+                                          color: AppColors.mist,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (settings.triggerApps.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                      vertical: 3,
                                     ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      'VPN включится сам, когда откроется выбранное приложение',
+                                    decoration: BoxDecoration(
+                                      color: AppColors.auroraTeal.withValues(
+                                        alpha: 0.14,
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      '${settings.triggerApps.length}',
                                       style: AppType.ui(
                                         12,
-                                        color: AppColors.mist,
+                                        weight: FontWeight.w700,
+                                        color: AppColors.auroraTeal,
                                       ),
                                     ),
-                                  ],
+                                  ),
+                                const SizedBox(width: 6),
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: AppColors.mist,
                                 ),
-                              ),
-                              if (settings.triggerApps.isNotEmpty)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 9,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.auroraTeal.withValues(
-                                      alpha: 0.14,
-                                    ),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    '${settings.triggerApps.length}',
-                                    style: AppType.ui(
-                                      12,
-                                      weight: FontWeight.w700,
-                                      color: AppColors.auroraTeal,
-                                    ),
-                                  ),
-                                ),
-                              const SizedBox(width: 6),
-                              const Icon(
-                                Icons.chevron_right_rounded,
-                                color: AppColors.mist,
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 18),
+                          const SizedBox(height: 18),
+                        ],
                         _modeSelector(settings.perAppMode, (mode) {
                           ctrl.setPerAppMode(mode);
                           _scheduleApply();
