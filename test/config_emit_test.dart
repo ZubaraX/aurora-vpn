@@ -25,7 +25,10 @@ void main() {
 
   final reality = parser.parseLink(
     'vless://11111111-2222-3333-4444-555555555555@example.com:443'
-    '?security=reality&sni=www.microsoft.com&fp=chrome&pbk=abc&sid=00'
+    // A real x25519 public key: `sing-box check` rejects a placeholder, so the
+    // emitted configs could never be validated with a fake one.
+    '?security=reality&sni=www.microsoft.com&fp=chrome'
+    '&pbk=Vzs5NxdN4ANBPvPX6wJwIu1CnwJUFHrfxPDEfCHPi1o&sid=00'
     '&type=tcp&flow=xtls-rprx-vision#Reality',
   )!;
   final ws = parser.parseLink(
