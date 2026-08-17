@@ -142,7 +142,7 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                         Text(
                           Platform.isAndroid
                               ? 'Выберите, какие приложения используют VPN. Остальные идут напрямую.'
-                              : 'Раздельное туннелирование по процессам. Выбор сопоставляется с правилами sing-box по имени процесса.',
+                              : 'Назначьте процессу отдельный сервер или «Без VPN». Остальные идут по общей маршрутизации (см. главный экран).',
                           style: AppType.ui(13, color: AppColors.mist),
                         ),
                         const SizedBox(height: 16),
@@ -225,16 +225,8 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                           }),
                           const SizedBox(height: 18),
                           _controls(enabled, list, selected, ctrl),
-                        ] else ...[
-                          _defaultSelector(settings.processDefaultDirect, (
-                            direct,
-                          ) {
-                            ctrl.setProcessDefaultDirect(direct);
-                            _scheduleApply();
-                          }),
-                          const SizedBox(height: 14),
+                        ] else
                           _desktopControls(),
-                        ],
                         const SizedBox(height: 12),
                         if (list.isEmpty)
                           Padding(
@@ -366,62 +358,6 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
   }
 
   // --- Desktop per-process controls ----------------------------------------
-
-  /// Global default for processes without an explicit assignment.
-  Widget _defaultSelector(bool direct, void Function(bool) onPick) {
-    Widget pill(String label, bool active, VoidCallback onTap) => Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            gradient: active ? AppColors.auroraGradient : null,
-            color: active ? null : AppColors.abyss,
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(
-              color: active ? Colors.transparent : AppColors.hairline,
-            ),
-          ),
-          child: Text(
-            label,
-            style: AppType.ui(
-              12.5,
-              weight: FontWeight.w800,
-              color: active ? AppColors.voidBg : AppColors.mist,
-            ),
-          ),
-        ),
-      ),
-    );
-    return Column(
-      children: [
-        Row(
-          children: [
-            Text('По умолчанию', style: AppType.ui(13, color: AppColors.mist)),
-            const Spacer(),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            pill('Основной VPN', !direct, () => onPick(false)),
-            const SizedBox(width: 8),
-            pill('Напрямую', direct, () => onPick(true)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          direct
-              ? 'Мимо VPN идёт весь трафик, кроме назначенных процессов.'
-              : 'Через основной сервер идёт всё, кроме переопределённых процессов.',
-          style: AppType.ui(12, color: AppColors.mist),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
 
   Widget _desktopControls() {
     return Column(

@@ -35,7 +35,8 @@ void main() {
     });
 
     test('parses a Hysteria2 link', () {
-      const link = 'hy2://pass@h2.example.com:443?sni=example.com&insecure=1#H2';
+      const link =
+          'hy2://pass@h2.example.com:443?sni=example.com&insecure=1#H2';
       final node = parser.parseLink(link);
       expect(node, isNotNull);
       expect(node!.protocol, ProxyProtocol.hysteria2);
@@ -58,13 +59,16 @@ void main() {
       // A provider changing a profile's label (traffic/expiry counters) must
       // NOT change its id, or the saved selection would drop on refresh…
       final renamed1 = parser.parseLink(
-          'vless://uuid@a.com:443?security=tls&sni=a.com#Server%20%5B30GB%5D')!;
+        'vless://uuid@a.com:443?security=tls&sni=a.com#Server%20%5B30GB%5D',
+      )!;
       final renamed2 = parser.parseLink(
-          'vless://uuid@a.com:443?security=tls&sni=a.com#Server%20%5B29GB%5D')!;
+        'vless://uuid@a.com:443?security=tls&sni=a.com#Server%20%5B29GB%5D',
+      )!;
       expect(renamed1.id, renamed2.id);
       // …but a real connection difference (SNI) still yields a distinct id.
       final otherSni = parser.parseLink(
-          'vless://uuid@a.com:443?security=tls&sni=b.com#Server')!;
+        'vless://uuid@a.com:443?security=tls&sni=b.com#Server',
+      )!;
       expect(otherSni.id, isNot(renamed1.id));
     });
 
@@ -92,27 +96,39 @@ void main() {
 
   group('SingBoxConfigBuilder', () {
     test('emits per-app include_package on Android allowlist', () {
-      final node = parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       const settings = VpnSettings(
         perAppMode: PerAppMode.allowlist,
         perAppSelected: {'org.telegram.messenger'},
       );
-      final cfg = const SingBoxConfigBuilder(isAndroid: true).build(node, settings);
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(node, settings);
       final tun = (cfg['inbounds'] as List).first as Map;
       expect(tun['include_package'], contains('org.telegram.messenger'));
     });
 
     test('emits process_name route rule on Windows allowlist', () {
-      final node = parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       const settings = VpnSettings(
         perAppMode: PerAppMode.allowlist,
         perAppSelected: {r'C:\Apps\Telegram.exe'},
       );
-      final cfg = const SingBoxConfigBuilder(isAndroid: false).build(node, settings);
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: false,
+      ).build(node, settings);
       final route = cfg['route'] as Map;
       final rules = route['rules'] as List;
-      final hasProc = rules.any((r) =>
-          r is Map && r['process_name'] is List && (r['process_name'] as List).contains('Telegram.exe'));
+      final hasProc = rules.any(
+        (r) =>
+            r is Map &&
+            r['process_name'] is List &&
+            (r['process_name'] as List).contains('Telegram.exe'),
+      );
       expect(hasProc, isTrue);
       // Allow-list must default everything else to direct — otherwise the whole
       // system stays tunnelled and split tunnelling does nothing.
@@ -120,8 +136,9 @@ void main() {
     });
 
     test('desktop per-process profile routes a process through its server', () {
-      final active =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final active = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       final other = parser.parseLink(
         'vless://uuid2@b.com:443?security=reality&sni=b.com&pbk=x&sid=00#B',
         subscriptionId: 'sub1',
@@ -129,144 +146,189 @@ void main() {
       final settings = VpnSettings(
         processProfiles: {r'C:\Games\game.exe': other.id},
       );
-      final cfg = const SingBoxConfigBuilder(isAndroid: false)
-          .build(active, settings, nodes: [other]);
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: false,
+      ).build(active, settings, nodes: [other]);
       final outbounds = (cfg['outbounds'] as List).cast<Map>();
       expect(outbounds.any((o) => o['tag'] == 'zone-${other.id}'), isTrue);
       final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
       expect(
-        rules.any((r) =>
-            r['outbound'] == 'zone-${other.id}' &&
-            r['process_name'] is List &&
-            (r['process_name'] as List).contains('game.exe')),
+        rules.any(
+          (r) =>
+              r['outbound'] == 'zone-${other.id}' &&
+              r['process_name'] is List &&
+              (r['process_name'] as List).contains('game.exe'),
+        ),
         isTrue,
       );
     });
 
     test('desktop per-process "Без VPN" routes the process direct', () {
-      final active =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final active = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       const settings = VpnSettings(
         processProfiles: {r'C:\game.exe': kTriggerNoVpn},
       );
-      final cfg =
-          const SingBoxConfigBuilder(isAndroid: false).build(active, settings);
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: false,
+      ).build(active, settings);
       final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
       expect(
-        rules.any((r) =>
-            r['outbound'] == 'direct' &&
-            r['process_name'] is List &&
-            (r['process_name'] as List).contains('game.exe')),
+        rules.any(
+          (r) =>
+              r['outbound'] == 'direct' &&
+              r['process_name'] is List &&
+              (r['process_name'] as List).contains('game.exe'),
+        ),
         isTrue,
       );
     });
 
-    test('desktop default "Напрямую" sends unassigned traffic direct', () {
-      final active =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
-      const on = VpnSettings(processDefaultDirect: true);
+    test('unassigned processes follow the global routing mode', () {
+      final active = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
+      // "Прямое" routing mode: only assigned processes are tunnelled.
+      const direct = VpnSettings(
+        routingMode: RoutingMode.direct,
+        processProfiles: {r'C:\game.exe': kTriggerNoVpn},
+      );
       expect(
-        (const SingBoxConfigBuilder(isAndroid: false).build(active, on)['route']
+        (const SingBoxConfigBuilder(
+              isAndroid: false,
+            ).build(active, direct)['route']
             as Map)['final'],
         'direct',
       );
-      const off = VpnSettings();
+      // Rule/global routing: unassigned traffic goes through the main server.
+      const global = VpnSettings(routingMode: RoutingMode.global);
       expect(
-        (const SingBoxConfigBuilder(isAndroid: false)
-            .build(active, off)['route'] as Map)['final'],
+        (const SingBoxConfigBuilder(
+              isAndroid: false,
+            ).build(active, global)['route']
+            as Map)['final'],
         'proxy',
       );
     });
 
     test('desktop process rule is desktop-only (ignored on Android)', () {
-      final active =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final active = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       const settings = VpnSettings(
         processProfiles: {r'C:\game.exe': kTriggerNoVpn},
       );
-      final rules = ((const SingBoxConfigBuilder(isAndroid: true)
-              .build(active, settings)['route'] as Map)['rules'] as List)
-          .cast<Map>();
+      final rules =
+          ((const SingBoxConfigBuilder(
+                        isAndroid: true,
+                      ).build(active, settings)['route']
+                      as Map)['rules']
+                  as List)
+              .cast<Map>();
       expect(rules.any((r) => r['process_name'] != null), isFalse);
     });
 
     test('emits domain-zone rules (direct/proxy/block) with priority', () {
-      final node =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
-      const settings = VpnSettings(domainZoneRules: {
-        'ru': 'direct',
-        'com': 'proxy',
-        'ads.example': 'block',
-      });
-      final cfg =
-          const SingBoxConfigBuilder(isAndroid: true).build(node, settings);
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
+      const settings = VpnSettings(
+        domainZoneRules: {
+          'ru': 'direct',
+          'com': 'proxy',
+          'ads.example': 'block',
+        },
+      );
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(node, settings);
       final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
-      final direct = rules.firstWhere((r) =>
-          r['outbound'] == 'direct' && r['domain_suffix'] is List &&
-          (r['domain_suffix'] as List).contains('.ru'));
+      final direct = rules.firstWhere(
+        (r) =>
+            r['outbound'] == 'direct' &&
+            r['domain_suffix'] is List &&
+            (r['domain_suffix'] as List).contains('.ru'),
+      );
       expect(direct, isNotNull);
-      final proxy = rules.firstWhere((r) =>
-          r['outbound'] == 'proxy' && r['domain_suffix'] is List &&
-          (r['domain_suffix'] as List).contains('.com'));
+      final proxy = rules.firstWhere(
+        (r) =>
+            r['outbound'] == 'proxy' &&
+            r['domain_suffix'] is List &&
+            (r['domain_suffix'] as List).contains('.com'),
+      );
       expect(proxy, isNotNull);
-      final block = rules.firstWhere((r) =>
-          r['action'] == 'reject' && r['domain_suffix'] is List &&
-          (r['domain_suffix'] as List).contains('.ads.example'));
+      final block = rules.firstWhere(
+        (r) =>
+            r['action'] == 'reject' &&
+            r['domain_suffix'] is List &&
+            (r['domain_suffix'] as List).contains('.ads.example'),
+      );
       // An explicit host also matches its bare form.
       expect((block['domain_suffix'] as List), contains('ads.example'));
     });
 
     test('routes a domain zone through a specific server outbound', () {
-      final active =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final active = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       final other = parser.parseLink(
         'vless://uuid2@b.com:443?security=reality&sni=b.com&pbk=x&sid=00#B',
         subscriptionId: 'sub1',
       )!;
       final settings = VpnSettings(domainZoneRules: {'ru': other.id});
-      final cfg = const SingBoxConfigBuilder(isAndroid: true)
-          .build(active, settings, nodes: [other]);
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(active, settings, nodes: [other]);
       final outbounds = (cfg['outbounds'] as List).cast<Map>();
       expect(
         outbounds.any(
-            (o) => o['tag'] == 'zone-${other.id}' && o['server'] == 'b.com'),
+          (o) => o['tag'] == 'zone-${other.id}' && o['server'] == 'b.com',
+        ),
         isTrue,
       );
       final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
       expect(
-        rules.any((r) =>
-            r['outbound'] == 'zone-${other.id}' &&
-            r['domain_suffix'] is List &&
-            (r['domain_suffix'] as List).contains('.ru')),
+        rules.any(
+          (r) =>
+              r['outbound'] == 'zone-${other.id}' &&
+              r['domain_suffix'] is List &&
+              (r['domain_suffix'] as List).contains('.ru'),
+        ),
         isTrue,
       );
     });
 
     test('domain zone with an unknown server id falls back to proxy', () {
-      final active =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final active = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       const settings = VpnSettings(domainZoneRules: {'ru': 'deleted-node'});
-      final cfg = const SingBoxConfigBuilder(isAndroid: true)
-          .build(active, settings, nodes: const []);
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(active, settings, nodes: const []);
       final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
       expect(
-        rules.any((r) =>
-            r['outbound'] == 'proxy' &&
-            r['domain_suffix'] is List &&
-            (r['domain_suffix'] as List).contains('.ru')),
+        rules.any(
+          (r) =>
+              r['outbound'] == 'proxy' &&
+              r['domain_suffix'] is List &&
+              (r['domain_suffix'] as List).contains('.ru'),
+        ),
         isTrue,
       );
     });
 
     test('direct-routed zones also resolve via the direct DNS server', () {
-      final node =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
-      const settings = VpnSettings(domainZoneRules: {
-        'ru': 'direct',
-        'youtube.com': 'proxy',
-      });
-      final cfg =
-          const SingBoxConfigBuilder(isAndroid: true).build(node, settings);
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
+      const settings = VpnSettings(
+        domainZoneRules: {'ru': 'direct', 'youtube.com': 'proxy'},
+      );
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(node, settings);
       final dnsRules = ((cfg['dns'] as Map)['rules'] as List).cast<Map>();
       final direct = dnsRules.firstWhere(
         (r) => r['server'] == 'direct' && r['domain_suffix'] is List,
@@ -275,31 +337,38 @@ void main() {
       expect(direct['domain_suffix'], contains('.ru'));
       // Proxied zones must NOT be pinned to the direct resolver.
       expect(
-        dnsRules.any((r) =>
-            r['server'] == 'direct' &&
-            r['domain_suffix'] is List &&
-            (r['domain_suffix'] as List).contains('.youtube.com')),
+        dnsRules.any(
+          (r) =>
+              r['server'] == 'direct' &&
+              r['domain_suffix'] is List &&
+              (r['domain_suffix'] as List).contains('.youtube.com'),
+        ),
         isFalse,
       );
     });
 
     test('converts an IDN zone to punycode (рф → xn--p1ai)', () {
-      final node =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
       const settings = VpnSettings(domainZoneRules: {'рф': 'direct'});
-      final cfg =
-          const SingBoxConfigBuilder(isAndroid: true).build(node, settings);
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(node, settings);
       final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
       final direct = rules.firstWhere(
-          (r) => r['outbound'] == 'direct' && r['domain_suffix'] is List);
+        (r) => r['outbound'] == 'direct' && r['domain_suffix'] is List,
+      );
       expect((direct['domain_suffix'] as List), contains('.xn--p1ai'));
     });
 
     test('rule-sets download through the proxy (white-list networks)', () {
-      final node =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
-      final cfg = const SingBoxConfigBuilder(isAndroid: true)
-          .build(node, const VpnSettings());
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(node, const VpnSettings());
       final ruleSets = (cfg['route'] as Map)['rule_set'] as List;
       expect(ruleSets, isNotEmpty);
       expect(
@@ -308,43 +377,52 @@ void main() {
       );
     });
 
-    test('censored domains resolve through the tunnel, direct zones do not', () {
-      // Local DNS poisons censored domains, so they must resolve through the
-      // tunnel; the direct resolver is plain UDP (white-list networks refuse
-      // DoH:443) and serves the zones the user routes directly.
-      final node =
-          parser.parseLink('vless://uuid@host.example:443?security=tls&sni=a.com#A')!;
-      final cfg = const SingBoxConfigBuilder(isAndroid: true)
-          .build(node, const VpnSettings());
-      final dns = cfg['dns'] as Map;
-      expect(dns['final'], 'remote');
-      final direct = (dns['servers'] as List)
-          .cast<Map>()
-          .firstWhere((s) => s['tag'] == 'direct');
-      expect(direct['type'], 'udp');
-      expect(direct['server'], kDefaultDirectDns);
-      final route = cfg['route'] as Map;
-      expect((route['default_domain_resolver'] as Map)['server'], 'direct');
-      final proxy = (cfg['outbounds'] as List)
-          .cast<Map>()
-          .firstWhere((o) => o['tag'] == 'proxy');
-      expect(proxy['domain_resolver'], 'direct');
-    });
+    test(
+      'censored domains resolve through the tunnel, direct zones do not',
+      () {
+        // Local DNS poisons censored domains, so they must resolve through the
+        // tunnel; the direct resolver is plain UDP (white-list networks refuse
+        // DoH:443) and serves the zones the user routes directly.
+        final node = parser.parseLink(
+          'vless://uuid@host.example:443?security=tls&sni=a.com#A',
+        )!;
+        final cfg = const SingBoxConfigBuilder(
+          isAndroid: true,
+        ).build(node, const VpnSettings());
+        final dns = cfg['dns'] as Map;
+        expect(dns['final'], 'remote');
+        final direct = (dns['servers'] as List).cast<Map>().firstWhere(
+          (s) => s['tag'] == 'direct',
+        );
+        expect(direct['type'], 'udp');
+        expect(direct['server'], kDefaultDirectDns);
+        final route = cfg['route'] as Map;
+        expect((route['default_domain_resolver'] as Map)['server'], 'direct');
+        final proxy = (cfg['outbounds'] as List).cast<Map>().firstWhere(
+          (o) => o['tag'] == 'proxy',
+        );
+        expect(proxy['domain_resolver'], 'direct');
+      },
+    );
 
     test('uses valid raw GitHub URLs for remote rule-sets', () {
-      final node =
-          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
-      final cfg = const SingBoxConfigBuilder(isAndroid: true)
-          .build(node, const VpnSettings());
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
+      final cfg = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(node, const VpnSettings());
       final route = cfg['route'] as Map;
       final ruleSets = route['rule_set'] as List;
       final urls = ruleSets.map((rule) => (rule as Map)['url'] as String);
       expect(
         urls,
-        everyElement(matches(
-          r'^https://raw\.githubusercontent\.com/SagerNet/'
-          r'[^/]+/rule-set/[^/]+\.srs$',
-        )),
+        everyElement(
+          matches(
+            r'^https://raw\.githubusercontent\.com/SagerNet/'
+            r'[^/]+/rule-set/[^/]+\.srs$',
+          ),
+        ),
       );
     });
   });
@@ -362,7 +440,9 @@ String _b64(String s) {
     final b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
     buffer.write(chars[b0 >> 2]);
     buffer.write(chars[((b0 & 3) << 4) | (b1 >> 4)]);
-    buffer.write(i + 1 < bytes.length ? chars[((b1 & 15) << 2) | (b2 >> 6)] : '=');
+    buffer.write(
+      i + 1 < bytes.length ? chars[((b1 & 15) << 2) | (b2 >> 6)] : '=',
+    );
     buffer.write(i + 2 < bytes.length ? chars[b2 & 63] : '=');
   }
   return buffer.toString();

@@ -285,13 +285,10 @@ class SingBoxConfigBuilder {
         !isAndroid &&
         s.perAppMode == PerAppMode.allowlist &&
         s.perAppSelected.isNotEmpty;
-    // Desktop per-process default: "Напрямую" means only assigned processes are
-    // tunnelled, everything else goes direct.
-    final desktopDefaultDirect = !isAndroid && s.processDefaultDirect;
+    // Unassigned traffic follows the global routing mode: "Прямое" (direct)
+    // tunnels only the processes assigned a server, everything else goes direct.
     final String finalOutbound;
-    if (winAllowlist ||
-        desktopDefaultDirect ||
-        s.routingMode == RoutingMode.direct) {
+    if (winAllowlist || s.routingMode == RoutingMode.direct) {
       finalOutbound = 'direct';
     } else {
       finalOutbound = 'proxy';

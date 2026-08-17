@@ -89,10 +89,6 @@ class SettingsController extends StateNotifier<VpnSettings> {
     _commit(state.copyWith(processProfiles: map));
   }
 
-  /// Sets what unassigned desktop processes do: false = main VPN, true = direct.
-  void setProcessDefaultDirect(bool v) =>
-      _commit(state.copyWith(processDefaultDirect: v));
-
   void clearProcessProfiles() => _commit(state.copyWith(processProfiles: {}));
 
   /// Routes [id] around the tunnel without disconnecting it (trigger "Без VPN").

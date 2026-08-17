@@ -23,7 +23,6 @@ class VpnSettings {
     this.perAppSelected = const {},
     this.bypassPackages = const {},
     this.processProfiles = const {},
-    this.processDefaultDirect = false,
     this.collapsedSubs = const {},
     this.domainZoneRules = const {},
     this.triggerApps = const {},
@@ -53,15 +52,10 @@ class VpnSettings {
   final Set<String> bypassPackages;
 
   /// Desktop per-process routing: process/exe id → target. The target is a node
-  /// id (route that process through that specific server), [kTriggerNoVpn]
-  /// (send it around the tunnel), or absent (follow the global default).
-  /// Emitted as `process_name` route rules on Windows.
+  /// id (route that process through that specific server) or [kTriggerNoVpn]
+  /// (send it around the tunnel); an absent process follows the global routing
+  /// mode. Emitted as `process_name` route rules on Windows.
   final Map<String, String> processProfiles;
-
-  /// Global default for desktop processes NOT overridden in [processProfiles]:
-  /// false = through the main VPN server, true = direct (only overridden
-  /// processes are tunnelled).
-  final bool processDefaultDirect;
 
   /// Ids of subscriptions whose server list is collapsed/hidden in the UI.
   final Set<String> collapsedSubs;
@@ -97,7 +91,6 @@ class VpnSettings {
     Set<String>? perAppSelected,
     Set<String>? bypassPackages,
     Map<String, String>? processProfiles,
-    bool? processDefaultDirect,
     Set<String>? collapsedSubs,
     Map<String, String>? domainZoneRules,
     Map<String, String>? triggerApps,
@@ -122,7 +115,6 @@ class VpnSettings {
     perAppSelected: perAppSelected ?? this.perAppSelected,
     bypassPackages: bypassPackages ?? this.bypassPackages,
     processProfiles: processProfiles ?? this.processProfiles,
-    processDefaultDirect: processDefaultDirect ?? this.processDefaultDirect,
     collapsedSubs: collapsedSubs ?? this.collapsedSubs,
     domainZoneRules: domainZoneRules ?? this.domainZoneRules,
     triggerApps: triggerApps ?? this.triggerApps,
@@ -148,7 +140,6 @@ class VpnSettings {
     'perAppSelected': perAppSelected.toList(),
     'bypassPackages': bypassPackages.toList(),
     'processProfiles': processProfiles,
-    'processDefaultDirect': processDefaultDirect,
     'collapsedSubs': collapsedSubs.toList(),
     'domainZoneRules': domainZoneRules,
     'triggerApps': triggerApps,
@@ -180,7 +171,6 @@ class VpnSettings {
     processProfiles: _stringMap(
       j['processProfiles'],
     ).map((k, v) => MapEntry(k, _migTarget(v))),
-    processDefaultDirect: _bool(j['processDefaultDirect'], false),
     collapsedSubs: _stringList(j['collapsedSubs']).toSet(),
     domainZoneRules: _migValues(_stringMap(j['domainZoneRules'])),
     triggerApps: _migValues(_stringMap(j['triggerApps'])),
