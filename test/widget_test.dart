@@ -119,6 +119,77 @@ void main() {
       expect(route['final'], 'direct');
     });
 
+    test('desktop per-process profile routes a process through its server', () {
+      final active =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      final other = parser.parseLink(
+        'vless://uuid2@b.com:443?security=reality&sni=b.com&pbk=x&sid=00#B',
+        subscriptionId: 'sub1',
+      )!;
+      final settings = VpnSettings(
+        processProfiles: {r'C:\Games\game.exe': other.id},
+      );
+      final cfg = const SingBoxConfigBuilder(isAndroid: false)
+          .build(active, settings, nodes: [other]);
+      final outbounds = (cfg['outbounds'] as List).cast<Map>();
+      expect(outbounds.any((o) => o['tag'] == 'zone-${other.id}'), isTrue);
+      final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
+      expect(
+        rules.any((r) =>
+            r['outbound'] == 'zone-${other.id}' &&
+            r['process_name'] is List &&
+            (r['process_name'] as List).contains('game.exe')),
+        isTrue,
+      );
+    });
+
+    test('desktop per-process "Без VPN" routes the process direct', () {
+      final active =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      const settings = VpnSettings(
+        processProfiles: {r'C:\game.exe': kTriggerNoVpn},
+      );
+      final cfg =
+          const SingBoxConfigBuilder(isAndroid: false).build(active, settings);
+      final rules = ((cfg['route'] as Map)['rules'] as List).cast<Map>();
+      expect(
+        rules.any((r) =>
+            r['outbound'] == 'direct' &&
+            r['process_name'] is List &&
+            (r['process_name'] as List).contains('game.exe')),
+        isTrue,
+      );
+    });
+
+    test('desktop default "Напрямую" sends unassigned traffic direct', () {
+      final active =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      const on = VpnSettings(processDefaultDirect: true);
+      expect(
+        (const SingBoxConfigBuilder(isAndroid: false).build(active, on)['route']
+            as Map)['final'],
+        'direct',
+      );
+      const off = VpnSettings();
+      expect(
+        (const SingBoxConfigBuilder(isAndroid: false)
+            .build(active, off)['route'] as Map)['final'],
+        'proxy',
+      );
+    });
+
+    test('desktop process rule is desktop-only (ignored on Android)', () {
+      final active =
+          parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;
+      const settings = VpnSettings(
+        processProfiles: {r'C:\game.exe': kTriggerNoVpn},
+      );
+      final rules = ((const SingBoxConfigBuilder(isAndroid: true)
+              .build(active, settings)['route'] as Map)['rules'] as List)
+          .cast<Map>();
+      expect(rules.any((r) => r['process_name'] != null), isFalse);
+    });
+
     test('emits domain-zone rules (direct/proxy/block) with priority', () {
       final node =
           parser.parseLink('vless://uuid@a.com:443?security=tls&sni=a.com#A')!;

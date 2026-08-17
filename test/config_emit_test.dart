@@ -66,6 +66,13 @@ void main() {
   emit('perapp_block', reality,
       const VpnSettings(perAppMode: PerAppMode.blocklist,
           perAppSelected: {'org.telegram.messenger'}));
+  // Desktop per-process profiles: one process through a specific server, one
+  // "Без VPN", with the global default set to direct.
+  emit('proc_profiles', reality,
+      VpnSettings(processDefaultDirect: true, processProfiles: {
+        r'C:\Games\game.exe': kTriggerNoVpn,
+        r'C:\Apps\chrome.exe': ws.id,
+      }), nodes: [ws]);
   emit('ads_ipv6', reality, const VpnSettings(blockAds: true, ipv6: true));
   emit('hysteria2', hy2, const VpnSettings());
   emit('ws', ws, const VpnSettings(tunStack: TunStack.gvisor));

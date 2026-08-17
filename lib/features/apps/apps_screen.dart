@@ -8,7 +8,10 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../data/models/enums.dart';
 import '../../data/models/installed_app.dart';
+import '../../data/models/proxy_node.dart';
+import '../../data/models/vpn_settings.dart';
 import '../../state/connection_controller.dart';
+import '../../state/profile_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../widgets/glass_card.dart';
 import 'trigger_apps_sheet.dart';
@@ -67,6 +70,9 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
     final appsAsync = ref.watch(installedAppsProvider);
     final enabled = settings.perAppMode != PerAppMode.off;
     final selected = settings.perAppSelected;
+    // Desktop routes per process to a chosen server / direct; Android keeps the
+    // allow/block-list checkboxes.
+    final nodes = ref.watch(profileProvider).nodes;
 
     return SafeArea(
       child: Center(
@@ -212,12 +218,23 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                           ),
                           const SizedBox(height: 18),
                         ],
-                        _modeSelector(settings.perAppMode, (mode) {
-                          ctrl.setPerAppMode(mode);
-                          _scheduleApply();
-                        }),
-                        const SizedBox(height: 18),
-                        _controls(enabled, list, selected, ctrl),
+                        if (Platform.isAndroid) ...[
+                          _modeSelector(settings.perAppMode, (mode) {
+                            ctrl.setPerAppMode(mode);
+                            _scheduleApply();
+                          }),
+                          const SizedBox(height: 18),
+                          _controls(enabled, list, selected, ctrl),
+                        ] else ...[
+                          _defaultSelector(settings.processDefaultDirect, (
+                            direct,
+                          ) {
+                            ctrl.setProcessDefaultDirect(direct);
+                            _scheduleApply();
+                          }),
+                          const SizedBox(height: 14),
+                          _desktopControls(),
+                        ],
                         const SizedBox(height: 12),
                         if (list.isEmpty)
                           Padding(
@@ -232,19 +249,30 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                           )
                         else
                           Opacity(
-                            opacity: enabled ? 1 : 0.5,
+                            opacity: (Platform.isAndroid && !enabled) ? 0.5 : 1,
                             child: Column(
                               children: [
                                 for (final app in list)
-                                  _AppRow(
-                                    app: app,
-                                    checked: selected.contains(app.id),
-                                    enabled: enabled,
-                                    onTap: () {
-                                      ctrl.toggleApp(app.id);
-                                      _scheduleApply();
-                                    },
-                                  ),
+                                  if (Platform.isAndroid)
+                                    _AppRow(
+                                      app: app,
+                                      checked: selected.contains(app.id),
+                                      enabled: enabled,
+                                      onTap: () {
+                                        ctrl.toggleApp(app.id);
+                                        _scheduleApply();
+                                      },
+                                    )
+                                  else
+                                    _ProcessRow(
+                                      app: app,
+                                      nodes: nodes,
+                                      target: settings.processProfiles[app.id],
+                                      onPick: (target) {
+                                        ctrl.setProcessProfile(app.id, target);
+                                        _scheduleApply();
+                                      },
+                                    ),
                               ],
                             ),
                           ),
@@ -313,6 +341,92 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Icon(
+              Icons.settings_suggest_rounded,
+              size: 15,
+              color: AppColors.mistDim,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Скрывать системные службы',
+              style: AppType.ui(12.5, color: AppColors.mist),
+            ),
+            const Spacer(),
+            Switch(
+              value: _hideSystem,
+              onChanged: (v) => setState(() => _hideSystem = v),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Desktop per-process controls ----------------------------------------
+
+  /// Global default for processes without an explicit assignment.
+  Widget _defaultSelector(bool direct, void Function(bool) onPick) {
+    Widget pill(String label, bool active, VoidCallback onTap) => Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            gradient: active ? AppColors.auroraGradient : null,
+            color: active ? null : AppColors.abyss,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+              color: active ? Colors.transparent : AppColors.hairline,
+            ),
+          ),
+          child: Text(
+            label,
+            style: AppType.ui(
+              12.5,
+              weight: FontWeight.w800,
+              color: active ? AppColors.voidBg : AppColors.mist,
+            ),
+          ),
+        ),
+      ),
+    );
+    return Column(
+      children: [
+        Row(
+          children: [
+            Text('По умолчанию', style: AppType.ui(13, color: AppColors.mist)),
+            const Spacer(),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            pill('Основной VPN', !direct, () => onPick(false)),
+            const SizedBox(width: 8),
+            pill('Напрямую', direct, () => onPick(true)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          direct
+              ? 'Мимо VPN идёт весь трафик, кроме назначенных процессов.'
+              : 'Через основной сервер идёт всё, кроме переопределённых процессов.',
+          style: AppType.ui(12, color: AppColors.mist),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopControls() {
+    return Column(
+      children: [
+        _search(true),
         const SizedBox(height: 10),
         Row(
           children: [
@@ -562,6 +676,157 @@ class _AppRow extends StatelessWidget {
       child: on
           ? const Icon(Icons.check_rounded, size: 17, color: AppColors.voidBg)
           : null,
+    );
+  }
+}
+
+/// A desktop process row with a routing dropdown: default, a specific server,
+/// or "Без VPN". [target] is null (default), [kTriggerNoVpn], or a node id.
+class _ProcessRow extends StatelessWidget {
+  const _ProcessRow({
+    required this.app,
+    required this.nodes,
+    required this.target,
+    required this.onPick,
+  });
+
+  final InstalledApp app;
+  final List<ProxyNode> nodes;
+  final String? target;
+  final ValueChanged<String?> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final assigned = target != null;
+    final noVpn = target == kTriggerNoVpn;
+    final node = assigned && !noVpn
+        ? nodes.where((n) => n.id == target).firstOrNull
+        : null;
+    final label = switch (target) {
+      null => 'По умолчанию',
+      kTriggerNoVpn => 'Без VPN',
+      _ => node?.name ?? 'Сервер удалён',
+    };
+    final accent = noVpn
+        ? AppColors.signalRed
+        : (node != null ? AppColors.auroraTeal : AppColors.mist);
+
+    return GlassCard(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      highlight: assigned,
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.slateHi,
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              app.isSystemService
+                  ? Icons.settings_suggest_rounded
+                  : Icons.apps_rounded,
+              size: 20,
+              color: AppColors.mist,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  app.name,
+                  style: AppType.ui(14, weight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  app.id,
+                  style: AppType.mono(10.5, color: AppColors.mistDim),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          PopupMenuButton<String?>(
+            tooltip: 'Маршрут для процесса',
+            color: AppColors.slate,
+            constraints: const BoxConstraints(minWidth: 220),
+            onSelected: (v) => onPick(v == '__default__' ? null : v),
+            itemBuilder: (context) => [
+              _item('__default__', 'По умолчанию', target == null),
+              _item(kTriggerNoVpn, 'Без VPN', noVpn),
+              if (nodes.isNotEmpty) const PopupMenuDivider(height: 1),
+              for (final n in nodes) _item(n.id, n.name, n.id == target),
+            ],
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 160),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.abyss,
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(
+                  color: assigned ? accent : AppColors.hairline,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: AppType.ui(
+                        12.5,
+                        weight: FontWeight.w700,
+                        color: accent,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.expand_more_rounded, size: 18, color: accent),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String?> _item(String value, String label, bool active) {
+    return PopupMenuItem<String?>(
+      value: value,
+      height: 40,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: AppType.ui(
+                13,
+                weight: active ? FontWeight.w700 : FontWeight.w500,
+                color: active ? AppColors.auroraTeal : AppColors.frost,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (active)
+            const Icon(
+              Icons.check_rounded,
+              size: 16,
+              color: AppColors.auroraTeal,
+            ),
+        ],
+      ),
     );
   }
 }

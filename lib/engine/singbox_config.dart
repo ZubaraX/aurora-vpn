@@ -21,7 +21,7 @@ class SingBoxConfigBuilder {
     VpnSettings s, {
     List<ProxyNode> nodes = const [],
   }) {
-    final zoneServers = _zoneServerNodes(s, nodes);
+    final zoneServers = _extraServerNodes(s, nodes);
     return {
       // Keep enough core diagnostics to explain a tunnel that is established
       // but cannot pass traffic. Logs remain app-private and can be cleared
@@ -57,17 +57,30 @@ class SingBoxConfigBuilder {
   }) =>
       const JsonEncoder.withIndent('  ').convert(build(node, s, nodes: nodes));
 
-  /// Nodes referenced by a domain-zone rule that targets a specific server
-  /// (target = node id), keyed by id. Missing ids (deleted nodes) are skipped.
-  Map<String, ProxyNode> _zoneServerNodes(VpnSettings s, List<ProxyNode> nodes) {
-    if (s.domainZoneRules.isEmpty || nodes.isEmpty) return const {};
+  /// Nodes referenced by a specific-server target (a domain-zone rule or a
+  /// desktop per-process profile), keyed by node id. Each gets its own
+  /// `zone-<id>` outbound. Missing ids (deleted nodes) and the non-node targets
+  /// (direct/proxy/block/no-VPN) are skipped.
+  Map<String, ProxyNode> _extraServerNodes(
+    VpnSettings s,
+    List<ProxyNode> nodes,
+  ) {
+    if (nodes.isEmpty) return const {};
     final byId = {for (final n in nodes) n.id: n};
     final out = <String, ProxyNode>{};
-    for (final target in s.domainZoneRules.values) {
-      if (target == 'direct' || target == 'proxy' || target == 'block') continue;
+    void consider(String target) {
+      if (target == 'direct' ||
+          target == 'proxy' ||
+          target == 'block' ||
+          target == kTriggerNoVpn) {
+        return;
+      }
       final n = byId[target];
       if (n != null) out[target] = n;
     }
+
+    s.domainZoneRules.values.forEach(consider);
+    s.processProfiles.values.forEach(consider);
     return out;
   }
 
@@ -180,8 +193,9 @@ class SingBoxConfigBuilder {
     if (isAndroid) {
       final bypass = s.bypassPackages;
       if (s.perAppMode == PerAppMode.allowlist && s.perAppSelected.isNotEmpty) {
-        final include =
-            s.perAppSelected.where((p) => !bypass.contains(p)).toList();
+        final include = s.perAppSelected
+            .where((p) => !bypass.contains(p))
+            .toList();
         if (include.isNotEmpty) tun['include_package'] = include;
       } else {
         final exclude = <String>{
@@ -226,6 +240,26 @@ class SingBoxConfigBuilder {
       }
     }
 
+    // Desktop per-process profiles: each process is routed through a specific
+    // server (its `zone-<id>` outbound), sent direct ("Без VPN"), or — for an
+    // unknown/deleted server id — falls back to the main proxy. Grouped by
+    // target so identical assignments share one rule. These win over the
+    // rule-set/zone routing below.
+    if (!isAndroid && s.processProfiles.isNotEmpty) {
+      final byOutbound = <String, List<String>>{};
+      s.processProfiles.forEach((appId, target) {
+        final outbound = target == kTriggerNoVpn
+            ? 'direct'
+            : zoneServerIds.contains(target)
+            ? 'zone-$target'
+            : 'proxy';
+        (byOutbound[outbound] ??= <String>[]).add(_exeName(appId));
+      });
+      byOutbound.forEach((outbound, procs) {
+        rules.add({'process_name': procs, 'outbound': outbound});
+      });
+    }
+
     if (s.bypassLan) {
       rules.add({'ip_is_private': true, 'outbound': 'direct'});
     }
@@ -251,8 +285,13 @@ class SingBoxConfigBuilder {
         !isAndroid &&
         s.perAppMode == PerAppMode.allowlist &&
         s.perAppSelected.isNotEmpty;
+    // Desktop per-process default: "Напрямую" means only assigned processes are
+    // tunnelled, everything else goes direct.
+    final desktopDefaultDirect = !isAndroid && s.processDefaultDirect;
     final String finalOutbound;
-    if (winAllowlist || s.routingMode == RoutingMode.direct) {
+    if (winAllowlist ||
+        desktopDefaultDirect ||
+        s.routingMode == RoutingMode.direct) {
       finalOutbound = 'direct';
     } else {
       finalOutbound = 'proxy';
@@ -348,7 +387,12 @@ class SingBoxConfigBuilder {
             },
     );
     if (s.blockAds) {
-      add('geosite-ads', 'sing-geosite', 'geosite-category-ads-all', 'geosite-ads.srs');
+      add(
+        'geosite-ads',
+        'sing-geosite',
+        'geosite-category-ads-all',
+        'geosite-ads.srs',
+      );
     }
     if (s.routingMode == RoutingMode.rule) {
       add('geosite-cn', 'sing-geosite', 'geosite-cn', 'geosite-cn.srs');
@@ -371,10 +415,13 @@ class SingBoxConfigBuilder {
   /// SNI/DNS names sing-box actually sees. Pure-ASCII input is returned as-is.
   String _toAsciiDomain(String domain) {
     if (domain.codeUnits.every((c) => c < 0x80)) return domain;
-    return domain.split('.').map((label) {
-      if (label.isEmpty || label.runes.every((r) => r < 0x80)) return label;
-      return 'xn--${_punycodeEncode(label)}';
-    }).join('.');
+    return domain
+        .split('.')
+        .map((label) {
+          if (label.isEmpty || label.runes.every((r) => r < 0x80)) return label;
+          return 'xn--${_punycodeEncode(label)}';
+        })
+        .join('.');
   }
 
   /// RFC 3492 punycode encoder for a single label.
@@ -414,7 +461,7 @@ class SingBoxConfigBuilder {
         if (c < n) delta++;
         if (c == n) {
           var q = delta;
-          for (var k = base;; k += base) {
+          for (var k = base; ; k += base) {
             final t = k <= bias ? tmin : (k >= bias + tmax ? tmax : k - bias);
             if (q < t) break;
             output.write(digit(t + (q - t) % (base - t)));

@@ -22,6 +22,8 @@ class VpnSettings {
     this.perAppMode = PerAppMode.off,
     this.perAppSelected = const {},
     this.bypassPackages = const {},
+    this.processProfiles = const {},
+    this.processDefaultDirect = false,
     this.collapsedSubs = const {},
     this.domainZoneRules = const {},
     this.triggerApps = const {},
@@ -49,6 +51,17 @@ class VpnSettings {
   /// apps set to "Без VPN": that app goes direct, everyone else keeps the VPN,
   /// instead of tearing the whole tunnel down.
   final Set<String> bypassPackages;
+
+  /// Desktop per-process routing: process/exe id → target. The target is a node
+  /// id (route that process through that specific server), [kTriggerNoVpn]
+  /// (send it around the tunnel), or absent (follow the global default).
+  /// Emitted as `process_name` route rules on Windows.
+  final Map<String, String> processProfiles;
+
+  /// Global default for desktop processes NOT overridden in [processProfiles]:
+  /// false = through the main VPN server, true = direct (only overridden
+  /// processes are tunnelled).
+  final bool processDefaultDirect;
 
   /// Ids of subscriptions whose server list is collapsed/hidden in the UI.
   final Set<String> collapsedSubs;
@@ -83,6 +96,8 @@ class VpnSettings {
     PerAppMode? perAppMode,
     Set<String>? perAppSelected,
     Set<String>? bypassPackages,
+    Map<String, String>? processProfiles,
+    bool? processDefaultDirect,
     Set<String>? collapsedSubs,
     Map<String, String>? domainZoneRules,
     Map<String, String>? triggerApps,
@@ -106,6 +121,8 @@ class VpnSettings {
     perAppMode: perAppMode ?? this.perAppMode,
     perAppSelected: perAppSelected ?? this.perAppSelected,
     bypassPackages: bypassPackages ?? this.bypassPackages,
+    processProfiles: processProfiles ?? this.processProfiles,
+    processDefaultDirect: processDefaultDirect ?? this.processDefaultDirect,
     collapsedSubs: collapsedSubs ?? this.collapsedSubs,
     domainZoneRules: domainZoneRules ?? this.domainZoneRules,
     triggerApps: triggerApps ?? this.triggerApps,
@@ -130,6 +147,8 @@ class VpnSettings {
     'perAppMode': perAppMode.name,
     'perAppSelected': perAppSelected.toList(),
     'bypassPackages': bypassPackages.toList(),
+    'processProfiles': processProfiles,
+    'processDefaultDirect': processDefaultDirect,
     'collapsedSubs': collapsedSubs.toList(),
     'domainZoneRules': domainZoneRules,
     'triggerApps': triggerApps,
@@ -158,12 +177,17 @@ class VpnSettings {
     perAppMode: _enum(PerAppMode.values, j['perAppMode'], PerAppMode.off),
     perAppSelected: _stringList(j['perAppSelected']).toSet(),
     bypassPackages: _stringList(j['bypassPackages']).toSet(),
+    processProfiles: _stringMap(
+      j['processProfiles'],
+    ).map((k, v) => MapEntry(k, _migTarget(v))),
+    processDefaultDirect: _bool(j['processDefaultDirect'], false),
     collapsedSubs: _stringList(j['collapsedSubs']).toSet(),
     domainZoneRules: _migValues(_stringMap(j['domainZoneRules'])),
     triggerApps: _migValues(_stringMap(j['triggerApps'])),
     triggerWifiProfiles: _migValues(_stringMap(j['triggerWifiProfiles'])),
-    triggerMobileProfiles: _mobileProfiles(j['triggerMobileProfiles'])
-        .map((k, v) => MapEntry(k, v.map(migrateNodeId).toList())),
+    triggerMobileProfiles: _mobileProfiles(
+      j['triggerMobileProfiles'],
+    ).map((k, v) => MapEntry(k, v.map(_migTarget).toList())),
     tunMode: _bool(j['tunMode'], true),
     tunStack: _enum(TunStack.values, j['tunStack'], TunStack.mixed),
     bypassLan: _bool(j['bypassLan'], true),
@@ -257,6 +281,11 @@ class VpnSettings {
 
   static Map<String, String> _migValues(Map<String, String> m) =>
       m.map((k, v) => MapEntry(k, migrateNodeId(v)));
+
+  /// Migrates a routing target, preserving the [kTriggerNoVpn] sentinel — it
+  /// contains underscores, so a blind [migrateNodeId] would mangle it.
+  static String _migTarget(String v) =>
+      v == kTriggerNoVpn ? v : migrateNodeId(v);
 
   static T _enum<T extends Enum>(List<T> values, Object? name, T fallback) {
     for (final v in values) {

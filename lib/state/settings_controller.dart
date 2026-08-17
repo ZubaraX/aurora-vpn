@@ -75,6 +75,26 @@ class SettingsController extends StateNotifier<VpnSettings> {
     return z;
   }
 
+  /// Assigns a desktop process to a routing target: a node id (that server),
+  /// [kTriggerNoVpn] (direct), or null/empty (follow the global default —
+  /// removes the override).
+  void setProcessProfile(String id, String? target) {
+    final map = {...state.processProfiles};
+    if (target == null || target.isEmpty) {
+      if (map.remove(id) == null) return;
+    } else {
+      if (map[id] == target) return;
+      map[id] = target;
+    }
+    _commit(state.copyWith(processProfiles: map));
+  }
+
+  /// Sets what unassigned desktop processes do: false = main VPN, true = direct.
+  void setProcessDefaultDirect(bool v) =>
+      _commit(state.copyWith(processDefaultDirect: v));
+
+  void clearProcessProfiles() => _commit(state.copyWith(processProfiles: {}));
+
   /// Routes [id] around the tunnel without disconnecting it (trigger "Без VPN").
   ///
   /// Returns whether the bypass set actually changed, so callers can skip
