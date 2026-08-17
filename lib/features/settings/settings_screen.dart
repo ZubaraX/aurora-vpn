@@ -199,7 +199,8 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'Диагностика',
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
-                            builder: (_) => const DiagnosticsScreen()),
+                          builder: (_) => const DiagnosticsScreen(),
+                        ),
                       ),
                     ),
                     const Divider(
@@ -291,8 +292,16 @@ class SettingsScreen extends ConsumerWidget {
 }
 
 /// User routing rules by domain zone (e.g. `.ru → напрямую`).
-class _DomainZonesCard extends ConsumerWidget {
+class _DomainZonesCard extends ConsumerStatefulWidget {
   const _DomainZonesCard();
+
+  @override
+  ConsumerState<_DomainZonesCard> createState() => _DomainZonesCardState();
+}
+
+class _DomainZonesCardState extends ConsumerState<_DomainZonesCard> {
+  /// Zones ticked for a bulk target change.
+  final Set<String> _selected = {};
 
   static const _targets = {
     'direct': ('Напрямую', AppColors.auroraTeal),
@@ -348,12 +357,14 @@ class _DomainZonesCard extends ConsumerWidget {
   };
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final rules = ref.watch(settingsProvider).domainZoneRules;
     final nodes = ref.watch(profileProvider).nodes;
     final ctrl = ref.read(settingsProvider.notifier);
     final entries = rules.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
+    // Drop selections whose zone was removed since.
+    _selected.removeWhere((z) => !rules.containsKey(z));
 
     return GlassCard(
       child: Column(
@@ -372,42 +383,106 @@ class _DomainZonesCard extends ConsumerWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
-                    const Icon(Icons.travel_explore_rounded,
-                        color: AppColors.mist, size: 18),
+                    // Tick to include this zone in a bulk target change.
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        _selected.contains(e.key)
+                            ? _selected.remove(e.key)
+                            : _selected.add(e.key);
+                      }),
+                      child: _tick(_selected.contains(e.key)),
+                    ),
                     const SizedBox(width: 10),
                     // The zone name yields space to the target chip, so the
                     // target label ("Напрямую"/"Через VPN"/server) stays legible
                     // instead of being clipped to "Напрям…".
                     Expanded(
-                      child: Text('.${e.key}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppType.mono(13, weight: FontWeight.w700)),
+                      child: Text(
+                        '.${e.key}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.mono(13, weight: FontWeight.w700),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     // Tap the target to change where this zone goes.
                     GestureDetector(
-                      onTap: () => _showEditTarget(
-                          context, ref, e.key, e.value, nodes),
+                      onTap: () =>
+                          _showEditTarget(context, ref, e.key, e.value, nodes),
                       child: _targetChip(e.value, nodes),
                     ),
                     IconButton(
                       tooltip: 'Изменить',
                       visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.edit_rounded,
-                          color: AppColors.mistDim, size: 17),
-                      onPressed: () => _showEditTarget(
-                          context, ref, e.key, e.value, nodes),
+                      icon: const Icon(
+                        Icons.edit_rounded,
+                        color: AppColors.mistDim,
+                        size: 17,
+                      ),
+                      onPressed: () =>
+                          _showEditTarget(context, ref, e.key, e.value, nodes),
                     ),
                     IconButton(
                       tooltip: 'Удалить',
                       visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.close_rounded,
-                          color: AppColors.mistDim, size: 18),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: AppColors.mistDim,
+                        size: 18,
+                      ),
                       onPressed: () {
                         ctrl.removeDomainZoneRule(e.key);
                         ref.read(connectionProvider.notifier).reapply();
                       },
+                    ),
+                  ],
+                ),
+              ),
+            // Bulk action bar for the ticked zones.
+            if (_selected.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(top: 2, bottom: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.auroraTeal.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.auroraTeal.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      'Выбрано: ${_selected.length}',
+                      style: AppType.ui(
+                        12.5,
+                        weight: FontWeight.w700,
+                        color: AppColors.auroraTeal,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => setState(_selected.clear),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.mist,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: const Text('Снять'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _showBulkEditTarget(context, ref, nodes),
+                      icon: const Icon(Icons.tune_rounded, size: 16),
+                      label: Text(
+                        'Задать вариант',
+                        style: AppType.ui(12.5, weight: FontWeight.w700),
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.auroraTeal,
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
                   ],
                 ),
@@ -448,8 +523,11 @@ class _DomainZonesCard extends ConsumerWidget {
               ActionChip(
                 backgroundColor: AppColors.abyss,
                 side: const BorderSide(color: AppColors.hairline),
-                avatar: const Icon(Icons.add_rounded,
-                    color: AppColors.auroraTeal, size: 16),
+                avatar: const Icon(
+                  Icons.add_rounded,
+                  color: AppColors.auroraTeal,
+                  size: 16,
+                ),
                 label: Text('Своя зона', style: AppType.ui(12)),
                 onPressed: () => _showAdd(context, ref, nodes),
               ),
@@ -474,15 +552,20 @@ class _DomainZonesCard extends ConsumerWidget {
       builder: (_) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           backgroundColor: AppColors.slate,
-          title: Text('.$zone', style: AppType.mono(17, weight: FontWeight.w700)),
+          title: Text(
+            '.$zone',
+            style: AppType.mono(17, weight: FontWeight.w700),
+          ),
           content: SizedBox(
             width: double.maxFinite,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Куда направить',
-                    style: AppType.ui(12, color: AppColors.mist)),
+                Text(
+                  'Куда направить',
+                  style: AppType.ui(12, color: AppColors.mist),
+                ),
                 const SizedBox(height: 8),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 260),
@@ -531,6 +614,101 @@ class _DomainZonesCard extends ConsumerWidget {
     }
   }
 
+  Widget _tick(bool on) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        gradient: on ? AppColors.auroraGradient : null,
+        color: on ? null : Colors.transparent,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: on ? Colors.transparent : AppColors.hairlineStrong,
+        ),
+      ),
+      child: on
+          ? const Icon(Icons.check_rounded, size: 15, color: AppColors.voidBg)
+          : null,
+    );
+  }
+
+  /// Applies one target to every ticked zone at once, then clears the selection.
+  Future<void> _showBulkEditTarget(
+    BuildContext context,
+    WidgetRef ref,
+    List<ProxyNode> nodes,
+  ) async {
+    final zones = _selected.toList();
+    String? target;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          backgroundColor: AppColors.slate,
+          title: Text('Для ${zones.length} зон', style: AppType.display(17)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Куда направить выбранные зоны',
+                  style: AppType.ui(12, color: AppColors.mist),
+                ),
+                const SizedBox(height: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 260),
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final entry in _targets.entries)
+                          _choice(
+                            label: entry.value.$1,
+                            color: entry.value.$2,
+                            selected: target == entry.key,
+                            onTap: () => setLocal(() => target = entry.key),
+                          ),
+                        for (final n in nodes)
+                          _choice(
+                            label: CountryFlags.cleanName(n.name),
+                            color: AppColors.auroraTeal,
+                            selected: target == n.id,
+                            onTap: () => setLocal(() => target = n.id),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: target == null
+                  ? null
+                  : () => Navigator.pop(context, target),
+              child: const Text('Применить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null) return;
+    ref.read(settingsProvider.notifier).addDomainZoneRules({
+      for (final z in zones) z: chosen,
+    });
+    ref.read(connectionProvider.notifier).reapply();
+    setState(_selected.clear);
+  }
+
   Future<void> _applyRussiaPreset(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final ok = await showDialog<bool>(
@@ -571,7 +749,9 @@ class _DomainZonesCard extends ConsumerWidget {
     final fixed = _targets[target];
     if (fixed != null) return fixed;
     for (final n in nodes) {
-      if (n.id == target) return (CountryFlags.cleanName(n.name), AppColors.frost);
+      if (n.id == target) {
+        return (CountryFlags.cleanName(n.name), AppColors.frost);
+      }
     }
     return ('сервер удалён', AppColors.mistDim);
   }
@@ -584,10 +764,12 @@ class _DomainZonesCard extends ConsumerWidget {
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppType.ui(11.5, weight: FontWeight.w700, color: color)),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: AppType.ui(11.5, weight: FontWeight.w700, color: color),
+      ),
     );
   }
 
@@ -621,8 +803,10 @@ class _DomainZonesCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text('Куда направить',
-                    style: AppType.ui(12, color: AppColors.mist)),
+                Text(
+                  'Куда направить',
+                  style: AppType.ui(12, color: AppColors.mist),
+                ),
                 const SizedBox(height: 8),
                 // Bounded height so the chip list scrolls cleanly inside the
                 // dialog instead of an unbounded Flexible (which rendered broken).
@@ -690,8 +874,11 @@ class _DomainZonesCard extends ConsumerWidget {
       selected: selected,
       selectedColor: color.withValues(alpha: 0.25),
       backgroundColor: AppColors.abyss,
-      labelStyle: AppType.ui(12.5,
-          weight: FontWeight.w700, color: selected ? color : AppColors.mist),
+      labelStyle: AppType.ui(
+        12.5,
+        weight: FontWeight.w700,
+        color: selected ? color : AppColors.mist,
+      ),
       onSelected: (_) => onTap(),
     );
   }

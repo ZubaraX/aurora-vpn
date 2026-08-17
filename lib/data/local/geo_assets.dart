@@ -29,11 +29,17 @@ class GeoAssets {
   static String pathOf(String name) =>
       '${dir().path}${Platform.pathSeparator}$name';
 
+  /// Test-only override: pins [ready] to a fixed value so config-builder tests
+  /// are deterministic regardless of what happens to be unpacked in the host's
+  /// app-data directory (a machine where Aurora has run has the files present).
+  static bool? debugReadyOverride;
+
   /// True once every rule-set is present on disk.
   /// Guarded so it can also be evaluated outside a Flutter app (the CI config
   /// validator builds configs in a plain Dart VM): any failure just means the
   /// bundled sets are unavailable and the remote fallback is used.
   static bool get ready {
+    if (debugReadyOverride != null) return debugReadyOverride!;
     try {
       return _names.every((n) => File(pathOf(n)).existsSync());
     } catch (_) {

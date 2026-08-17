@@ -50,16 +50,24 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
     });
   }
 
-  List<InstalledApp> _filtered(List<InstalledApp> apps, Set<String> selected) {
-    var list = apps;
+  /// [assigned] = ids with a routing choice (selected on Android, a process
+  /// profile on desktop). They sort to the top; everything else is alphabetical.
+  List<InstalledApp> _filtered(List<InstalledApp> apps, Set<String> assigned) {
+    var list = apps.toList();
     if (_hideSystem) list = list.where((a) => !a.isSystemService).toList();
     if (_filter == _AppFilter.selected) {
-      list = list.where((a) => selected.contains(a.id)).toList();
+      list = list.where((a) => assigned.contains(a.id)).toList();
     }
     if (_query.isNotEmpty) {
       final q = _query.toLowerCase();
       list = list.where((a) => a.name.toLowerCase().contains(q)).toList();
     }
+    list.sort((a, b) {
+      final aSel = assigned.contains(a.id);
+      final bSel = assigned.contains(b.id);
+      if (aSel != bSel) return aSel ? -1 : 1;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
     return list;
   }
 
@@ -73,6 +81,10 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
     // Desktop routes per process to a chosen server / direct; Android keeps the
     // allow/block-list checkboxes.
     final nodes = ref.watch(profileProvider).nodes;
+    // Ids with a routing choice — sorted to the top of the list.
+    final assigned = Platform.isAndroid
+        ? selected
+        : settings.processProfiles.keys.toSet();
 
     return SafeArea(
       child: Center(
@@ -131,11 +143,11 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                     final knownIds = apps.map((a) => a.id).toSet();
                     final merged = [
                       ...apps,
-                      for (final id in selected)
+                      for (final id in assigned)
                         if (!knownIds.contains(id))
                           InstalledApp(id: id, name: _pretty(id)),
                     ];
-                    final list = _filtered(merged, selected);
+                    final list = _filtered(merged, assigned);
                     return ListView(
                       padding: const EdgeInsets.fromLTRB(20, 6, 20, 28),
                       children: [

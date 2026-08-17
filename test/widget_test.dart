@@ -1,3 +1,4 @@
+import 'package:aurora/data/local/geo_assets.dart';
 import 'package:aurora/data/models/enums.dart';
 import 'package:aurora/data/models/vpn_settings.dart';
 import 'package:aurora/data/parsers/subscription_parser.dart';
@@ -95,6 +96,12 @@ void main() {
   });
 
   group('SingBoxConfigBuilder', () {
+    // The rule-set tests assert the REMOTE fallback, which only holds when the
+    // bundled sets are not unpacked. On a machine where Aurora has run they are,
+    // so pin the branch instead of depending on host disk state.
+    setUp(() => GeoAssets.debugReadyOverride = false);
+    tearDown(() => GeoAssets.debugReadyOverride = null);
+
     test('emits per-app include_package on Android allowlist', () {
       final node = parser.parseLink(
         'vless://uuid@a.com:443?security=tls&sni=a.com#A',
