@@ -67,5 +67,13 @@ abstract class VpnEngine {
   /// Verifies that the selected outbound can carry an HTTPS request.
   Future<bool> verifyConnection();
 
+  /// Whether a VPN interface actually exists right now.
+  ///
+  /// Reporting "connected" from our own bookkeeping alone hid a tunnel that
+  /// Android had torn down underneath us (MIUI does this), leaving the app
+  /// claiming protection while traffic went straight out. Backends that cannot
+  /// tell report true so behaviour is unchanged.
+  Future<bool> tunnelAlive() async => true;
+
   void dispose();
 }

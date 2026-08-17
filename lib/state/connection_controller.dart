@@ -178,6 +178,19 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     }
     _healthChecking = true;
     try {
+      // First make sure a tunnel still exists at all. Android can tear the VPN
+      // down without telling us, and we were happily reporting "Защищено" over
+      // a dead interface while every app went out unprotected.
+      if (!await _engine.tunnelAlive()) {
+        if (state.status != ConnectionStatus.connected) return;
+        state = state.copyWith(
+          status: ConnectionStatus.disconnected,
+          message: 'Система отключила VPN — переподключаемся',
+        );
+        _healthFailures = 0;
+        if (_wantsConnection) _scheduleReconnect();
+        return;
+      }
       final ok = await _engine.verifyConnection();
       if (_transitioning || state.status != ConnectionStatus.connected) return;
       if (ok) {

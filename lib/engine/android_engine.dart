@@ -123,6 +123,15 @@ class AndroidVpnEngine extends VpnEngine {
   }
 
   @override
+  Future<bool> tunnelAlive() async {
+    try {
+      return await _method.invokeMethod<bool>('alive') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  @override
   Future<bool> verifyConnection() async {
     try {
       return await _method.invokeMethod<bool>('probe') ?? false;

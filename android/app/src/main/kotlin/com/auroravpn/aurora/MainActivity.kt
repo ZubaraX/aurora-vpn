@@ -99,6 +99,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, VPN_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "ping" -> result.success(true)
+                "alive" -> result.success(AuroraVpnService.isTunnelAlive())
                 "probe" -> Thread({
                     val reachable = probeProxy()
                     runOnUiThread { result.success(reachable) }

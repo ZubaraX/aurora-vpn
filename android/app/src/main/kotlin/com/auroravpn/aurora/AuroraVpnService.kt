@@ -79,8 +79,20 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         @Volatile private var tunnelActive = false
 
+        // Whether a TUN interface is actually established right now. MIUI can
+        // tear the tunnel down while leaving the Service object alive, so
+        // "we asked for a tunnel" (tunnelActive) is NOT proof one exists —
+        // reporting "Защищено" off that alone hid a completely dead tunnel.
+        @Volatile private var tunOpen = false
+
         @JvmStatic
         fun isTunnelActive(): Boolean = tunnelActive
+
+        /// True only when the core is up AND the VPN interface is open.
+        @JvmStatic
+        fun isTunnelAlive(): Boolean = tunnelActive && tunOpen && coreConnectedFlag
+
+        @Volatile private var coreConnectedFlag = false
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -182,6 +194,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 controllerPort = newControllerPort
                 publishedControllerPort = newControllerPort
                 coreConnected = true
+                coreConnectedFlag = true
                 connectedSince = System.currentTimeMillis()
                 statsUploadTotal = 0
                 statsDownloadTotal = 0
@@ -194,6 +207,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 tunnelActive = false
                 requestedConfig = null
                 coreConnected = false
+                coreConnectedFlag = false
                 logError("start", t)
                 closeCoreResources(server)
                 emitStatus("error:" + (t.message ?: "не удалось запустить ядро"))
@@ -351,6 +365,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         // to finish, matching the official sing-box Android lifecycle.
         try { tun?.close() } catch (_: Throwable) {}
         tun = null
+        tunOpen = false
         try { server?.closeService() } catch (_: Throwable) {}
         try { server?.close() } catch (_: Throwable) {}
         networkCallback?.let {
@@ -420,6 +435,7 @@ class AuroraVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             ?: throw IllegalStateException("VpnService.establish() returned null")
         val previousTun = tun
         tun = pfd
+        tunOpen = true
         try { previousTun?.close() } catch (_: Throwable) {}
 
         // Bind the tunnel to the physical network that actually carries it.
