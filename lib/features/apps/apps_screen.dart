@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -25,6 +26,26 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
   String _query = '';
   _AppFilter _filter = _AppFilter.all;
   bool _hideSystem = true;
+  Timer? _applyTimer;
+
+  @override
+  void dispose() {
+    _applyTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Reloads the tunnel so a routing change takes effect immediately.
+  ///
+  /// Per-app routing is baked into the core's config, so until now unticking an
+  /// app did nothing until the user reconnected by hand — the app kept going
+  /// around the tunnel, which on a white-list network means no connectivity at
+  /// all. Debounced, so ticking a dozen apps reloads the core once.
+  void _scheduleApply() {
+    _applyTimer?.cancel();
+    _applyTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) ref.read(connectionProvider.notifier).reapply();
+    });
+  }
 
   List<InstalledApp> _filtered(List<InstalledApp> apps, Set<String> selected) {
     var list = apps;
@@ -185,7 +206,10 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                           ),
                         ),
                         const SizedBox(height: 18),
-                        _modeSelector(settings.perAppMode, ctrl.setPerAppMode),
+                        _modeSelector(settings.perAppMode, (mode) {
+                          ctrl.setPerAppMode(mode);
+                          _scheduleApply();
+                        }),
                         const SizedBox(height: 18),
                         _controls(enabled, list, selected, ctrl),
                         const SizedBox(height: 12),
@@ -210,7 +234,10 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                                     app: app,
                                     checked: selected.contains(app.id),
                                     enabled: enabled,
-                                    onTap: () => ctrl.toggleApp(app.id),
+                                    onTap: () {
+                                      ctrl.toggleApp(app.id);
+                                      _scheduleApply();
+                                    },
                                   ),
                               ],
                             ),
@@ -259,16 +286,24 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
               allChecked ? Icons.remove_done_rounded : Icons.done_all_rounded,
               allChecked ? 'Снять' : 'Все',
               enabled && list.isNotEmpty
-                  ? () => allChecked
-                        ? ctrl.deselectApps(list.map((a) => a.id))
-                        : ctrl.selectApps(list.map((a) => a.id))
+                  ? () {
+                      allChecked
+                          ? ctrl.deselectApps(list.map((a) => a.id))
+                          : ctrl.selectApps(list.map((a) => a.id));
+                      _scheduleApply();
+                    }
                   : null,
             ),
             const SizedBox(width: 4),
             _action(
               Icons.clear_rounded,
               'Очистить',
-              enabled && selected.isNotEmpty ? ctrl.clearApps : null,
+              enabled && selected.isNotEmpty
+                  ? () {
+                      ctrl.clearApps();
+                      _scheduleApply();
+                    }
+                  : null,
             ),
           ],
         ),
