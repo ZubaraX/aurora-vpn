@@ -11,6 +11,9 @@ class Storage {
   static const kSubscriptions = 'aurora.subscriptions';
   static const kNodes = 'aurora.nodes';
   static const kSettings = 'aurora.settings';
+  /// id -> last known node name, so a saved selection survives a provider
+  /// rotating a server's credentials (which changes its content-derived id).
+  static const kNodeNames = 'aurora.nodenames';
 
   File _file(String key) =>
       File('${_dir.path}${Platform.pathSeparator}$key.json');

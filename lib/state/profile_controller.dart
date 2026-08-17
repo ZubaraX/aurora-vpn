@@ -18,12 +18,18 @@ class ProfileState {
     this.nodes = const [],
     this.busy = false,
     this.pinging = const {},
+    this.nodeNames = const {},
     this.error,
   });
 
   final List<Subscription> subscriptions;
   final List<ProxyNode> nodes;
   final bool busy;
+
+  /// Last known display name of every node id ever seen (id → name), persisted.
+  /// Lets a saved selection survive a provider rotating a server's credentials:
+  /// that changes the content-derived id, but the name stays the same.
+  final Map<String, String> nodeNames;
 
   /// Ids of nodes whose latency is being measured right now. The UI shows a
   /// spinner in place of the stale value so a re-ping never looks frozen.
@@ -37,10 +43,22 @@ class ProfileState {
   List<ProxyNode> nodesOf(String subId) =>
       nodes.where((n) => n.subscriptionId == subId).toList();
 
+  /// Resolves a saved node id.
+  ///
+  /// Falls back to matching by NAME when the id is gone: providers rotate a
+  /// server's credentials/SNI, which changes the content-derived id even though
+  /// it is the same profile ("Germany" stays "Germany"). Without this a trigger
+  /// profile or zone rule would silently lose its server on such a refresh.
   ProxyNode? nodeById(String? id) {
     if (id == null) return null;
     for (final n in nodes) {
       if (n.id == id) return n;
+    }
+    final name = nodeNames[id];
+    if (name != null && name.isNotEmpty) {
+      for (final n in nodes) {
+        if (n.name == name) return n;
+      }
     }
     return null;
   }
@@ -50,6 +68,7 @@ class ProfileState {
     List<ProxyNode>? nodes,
     bool? busy,
     Set<String>? pinging,
+    Map<String, String>? nodeNames,
     String? error,
     bool clearError = false,
   }) => ProfileState(
@@ -57,6 +76,7 @@ class ProfileState {
     nodes: nodes ?? this.nodes,
     busy: busy ?? this.busy,
     pinging: pinging ?? this.pinging,
+    nodeNames: nodeNames ?? this.nodeNames,
     error: clearError ? null : (error ?? this.error),
   );
 }
@@ -126,10 +146,28 @@ class ProfileController extends StateNotifier<ProfileState> {
         nodes.add(ProxyNode.fromJson(j));
       } catch (_) {}
     }
-    state = state.copyWith(subscriptions: subs, nodes: nodes);
+    final names = <String, String>{};
+    (_storage.readMap(Storage.kNodeNames) ?? const {}).forEach((k, v) {
+      names[k] = v is String ? v : '$v';
+    });
+    state = state.copyWith(
+      subscriptions: subs,
+      nodes: nodes,
+      nodeNames: {...names, for (final n in nodes) n.id: n.name},
+    );
   }
 
   void _persist() {
+    // Remember each node's name so a saved selection can still be matched after
+    // the provider rotates that server's credentials (which changes its id).
+    final names = {...state.nodeNames};
+    for (final n in state.nodes) {
+      names[n.id] = n.name;
+    }
+    if (names.length != state.nodeNames.length) {
+      state = state.copyWith(nodeNames: names);
+    }
+    _storage.writeJson(Storage.kNodeNames, names);
     _storage.writeJson(
       Storage.kSubscriptions,
       state.subscriptions.map((s) => s.toJson()).toList(),
