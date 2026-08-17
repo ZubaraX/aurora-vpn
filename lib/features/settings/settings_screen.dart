@@ -16,6 +16,7 @@ import '../../state/providers.dart';
 import '../../state/settings_controller.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/ui_bits.dart';
+import '../logs/diagnostics_screen.dart';
 import '../logs/logs_screen.dart';
 import '../update/update_dialog.dart';
 
@@ -186,6 +187,20 @@ class SettingsScreen extends ConsumerWidget {
                       icon: Icons.system_update_rounded,
                       title: 'Проверить обновления',
                       onTap: () => _checkUpdate(context, ref),
+                    ),
+                    const Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.hairline,
+                      indent: 56,
+                    ),
+                    _NavRow(
+                      icon: Icons.health_and_safety_outlined,
+                      title: 'Диагностика',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const DiagnosticsScreen()),
+                      ),
                     ),
                     const Divider(
                       height: 1,

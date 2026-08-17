@@ -138,6 +138,16 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     await _connectRequested(node);
   }
 
+  /// Runs the engine's traffic probe once, for the diagnostics screen.
+  Future<bool> probeTunnel() async {
+    if (state.status != ConnectionStatus.connected) return false;
+    try {
+      return await _engine.verifyConnection();
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Watches the live tunnel and switches servers when the active one stops
   /// passing traffic.
   ///
