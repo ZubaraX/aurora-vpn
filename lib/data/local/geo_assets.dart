@@ -15,11 +15,7 @@ import 'app_paths.dart';
 class GeoAssets {
   const GeoAssets._();
 
-  static const _names = [
-    'geosite-cn.srs',
-    'geoip-cn.srs',
-    'geosite-ads.srs',
-  ];
+  static const _names = ['geosite-cn.srs', 'geoip-cn.srs', 'geosite-ads.srs'];
 
   /// Directory holding the unpacked rule-sets.
   static Directory dir() =>
@@ -47,20 +43,37 @@ class GeoAssets {
     }
   }
 
-  /// Copies any missing rule-set out of the bundle. Cheap after the first run
-  /// (existing files are left alone) and safe to call on every launch; failures
-  /// are swallowed so a packaging problem can never block startup — the config
-  /// builder falls back to remote rule-sets when [ready] is false.
+  /// Bump whenever a file in `assets/geo/` changes, so existing installs replace
+  /// their unpacked copy. Without this the ad/geo lists were frozen at whatever
+  /// shipped the day the app was first run: unpack() skipped any file that
+  /// already existed, so an updated blocklist never reached anyone who had run
+  /// an earlier build.
+  static const version = 3;
+
+  static File _stamp() =>
+      File('${dir().path}${Platform.pathSeparator}.version');
+
+  /// Copies the rule-sets out of the bundle, replacing stale ones. Cheap after
+  /// the first run (a version stamp short-circuits it) and safe to call on every
+  /// launch; failures are swallowed so a packaging problem can never block
+  /// startup — the config builder falls back to remote rule-sets when [ready]
+  /// is false.
   static Future<void> unpack() async {
     try {
       final target = dir();
       if (!target.existsSync()) target.createSync(recursive: true);
+      final stamp = _stamp();
+      final current = stamp.existsSync()
+          ? int.tryParse(stamp.readAsStringSync().trim())
+          : null;
+      final stale = current != version;
       for (final name in _names) {
         final file = File(pathOf(name));
-        if (file.existsSync() && file.lengthSync() > 0) continue;
+        if (!stale && file.existsSync() && file.lengthSync() > 0) continue;
         final data = await rootBundle.load('assets/geo/$name');
         await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
       }
+      if (stale) await stamp.writeAsString('$version', flush: true);
     } catch (_) {}
   }
 }

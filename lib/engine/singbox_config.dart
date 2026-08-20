@@ -390,6 +390,11 @@ class SingBoxConfigBuilder {
             },
     );
     if (s.blockAds) {
+      // The BUNDLED geosite-ads.srs is not the upstream set: it merges
+      // SagerNet's ~890 broad apex suffixes with HaGeZi Multi NORMAL (~186k
+      // specific hosts) — see tool/build_ads_ruleset.ps1. Upstream alone blocks
+      // too little to be worth a switch. The remote fallback below is still the
+      // plain SagerNet set, used only when unpacking the bundle failed.
       add(
         'geosite-ads',
         'sing-geosite',

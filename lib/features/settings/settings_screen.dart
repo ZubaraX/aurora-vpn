@@ -28,6 +28,14 @@ class SettingsScreen extends ConsumerWidget {
     final s = ref.watch(settingsProvider);
     final ctrl = ref.read(settingsProvider.notifier);
     final conn = ref.read(connectionProvider.notifier);
+    // Everything that ends up in the generated config must reach the RUNNING
+    // core too. Without this a toggle only took effect after a manual
+    // reconnect, which is why "Блокировка рекламы" looked like it did nothing:
+    // the switch was on while the live config had no reject rule at all.
+    void applied(VoidCallback change) {
+      change();
+      conn.reapply();
+    }
 
     return SafeArea(
       child: Center(
@@ -44,7 +52,7 @@ class SettingsScreen extends ConsumerWidget {
                 _RoutingCard(
                   mode: m,
                   selected: s.routingMode == m,
-                  onTap: () => ctrl.setRoutingMode(m),
+                  onTap: () => applied(() => ctrl.setRoutingMode(m)),
                 ),
               const SizedBox(height: 20),
 
@@ -62,17 +70,20 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'Режим TUN',
                       subtitle: 'Перехват всего трафика на уровне системы',
                       value: s.tunMode,
-                      onChanged: ctrl.setTunMode,
+                      onChanged: (v) => applied(() => ctrl.setTunMode(v)),
                     ),
                     _tileDivider(),
-                    _StackTile(stack: s.tunStack, onPick: ctrl.setTunStack),
+                    _StackTile(
+                      stack: s.tunStack,
+                      onPick: (v) => applied(() => ctrl.setTunStack(v)),
+                    ),
                     _tileDivider(),
                     _SwitchTile(
                       icon: Icons.lan_rounded,
                       title: 'Обход локальной сети',
                       subtitle: 'Приватные адреса идут напрямую',
                       value: s.bypassLan,
-                      onChanged: ctrl.setBypassLan,
+                      onChanged: (v) => applied(() => ctrl.setBypassLan(v)),
                     ),
                     _tileDivider(),
                     _SwitchTile(
@@ -80,7 +91,7 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'Блокировка рекламы',
                       subtitle: 'Правило geosite-ads → reject',
                       value: s.blockAds,
-                      onChanged: ctrl.setBlockAds,
+                      onChanged: (v) => applied(() => ctrl.setBlockAds(v)),
                     ),
                     _tileDivider(),
                     _SwitchTile(
@@ -88,7 +99,7 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'IPv6',
                       subtitle: 'Двойной стек в туннеле',
                       value: s.ipv6,
-                      onChanged: ctrl.setIpv6,
+                      onChanged: (v) => applied(() => ctrl.setIpv6(v)),
                     ),
                   ],
                 ),
@@ -129,14 +140,14 @@ class SettingsScreen extends ConsumerWidget {
                       icon: Icons.dns_rounded,
                       title: 'DNS через прокси',
                       value: s.dnsRemote,
-                      onSave: ctrl.setDnsRemote,
+                      onSave: (v) => applied(() => ctrl.setDnsRemote(v)),
                     ),
                     _tileDivider(),
                     _EditTile(
                       icon: Icons.router_rounded,
                       title: 'DNS напрямую',
                       value: s.dnsDirect,
-                      onSave: ctrl.setDnsDirect,
+                      onSave: (v) => applied(() => ctrl.setDnsDirect(v)),
                     ),
                   ],
                 ),
@@ -356,6 +367,44 @@ class _DomainZonesCardState extends ConsumerState<_DomainZonesCard> {
     'notion.so': 'proxy',
   };
 
+  /// One-tap ad/tracker zones for the Доменные зоны list. The global
+  /// "Блокировка рекламы" switch already rejects ~187k hosts from the bundled
+  /// rule-set; these are the few networks worth having as VISIBLE, editable
+  /// rules — so they can be seen, and individually switched back to direct if
+  /// something a user needs turns out to depend on one.
+  static const _adsPreset = <String, String>{
+    'doubleclick.net': 'block',
+    'googlesyndication.com': 'block',
+    'googleadservices.com': 'block',
+    'google-analytics.com': 'block',
+    'googletagmanager.com': 'block',
+    'googletagservices.com': 'block',
+    'adservice.google.com': 'block',
+    'app-measurement.com': 'block',
+    'crashlytics.com': 'block',
+    'adcolony.com': 'block',
+    'applovin.com': 'block',
+    'unityads.unity3d.com': 'block',
+    'chartboost.com': 'block',
+    'vungle.com': 'block',
+    'inmobi.com': 'block',
+    'mopub.com': 'block',
+    'smaato.net': 'block',
+    'criteo.com': 'block',
+    'outbrain.com': 'block',
+    'taboola.com': 'block',
+    'scorecardresearch.com': 'block',
+    'hotjar.com': 'block',
+    'amplitude.com': 'block',
+    'appsflyer.com': 'block',
+    'adjust.com': 'block',
+    'branch.io': 'block',
+    'flurry.com': 'block',
+    'adriver.ru': 'block',
+    'adfox.ru': 'block',
+    'admob.com': 'block',
+  };
+
   @override
   Widget build(BuildContext context) {
     final rules = ref.watch(settingsProvider).domainZoneRules;
@@ -505,6 +554,23 @@ class _DomainZonesCardState extends ConsumerState<_DomainZonesCard> {
                 style: AppType.ui(13, weight: FontWeight.w700),
               ),
               onPressed: () => _applyRussiaPreset(context, ref),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.signalRed,
+                side: const BorderSide(color: AppColors.hairlineStrong),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              icon: const Icon(Icons.block_rounded, size: 18),
+              label: Text(
+                'Заблокировать рекламные зоны',
+                style: AppType.ui(13, weight: FontWeight.w700),
+              ),
+              onPressed: () => _applyAdsPreset(context, ref),
             ),
           ),
           const SizedBox(height: 6),
@@ -707,6 +773,42 @@ class _DomainZonesCardState extends ConsumerState<_DomainZonesCard> {
     });
     ref.read(connectionProvider.notifier).reapply();
     setState(_selected.clear);
+  }
+
+  Future<void> _applyAdsPreset(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.slate,
+        title: Text('Рекламные зоны', style: AppType.display(18)),
+        content: Text(
+          'Добавит ${_adsPreset.length} зон рекламных и трекинговых сетей '
+          '(Google Ads, AdMob, Criteo, AppsFlyer, AdRiver и другие) со '
+          'значением «Блок».\n\n'
+          'Это дополняет переключатель «Блокировка рекламы» в настройках '
+          'туннеля: там список из ~187 тысяч доменов, а эти зоны видны в '
+          'списке — любую можно переключить обратно, если она что-то ломает.',
+          style: AppType.ui(13, color: AppColors.mist),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Применить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    ref.read(settingsProvider.notifier).addDomainZoneRules(_adsPreset);
+    ref.read(connectionProvider.notifier).reapply();
+    messenger.showSnackBar(
+      SnackBar(content: Text('Добавлено зон: ${_adsPreset.length}')),
+    );
   }
 
   Future<void> _applyRussiaPreset(BuildContext context, WidgetRef ref) async {
