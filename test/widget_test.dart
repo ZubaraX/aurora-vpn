@@ -142,6 +142,38 @@ void main() {
       expect(route['final'], 'direct');
     });
 
+    test('ad blocking is evaluated before user domain-zone rules', () {
+      // Regression: with the Россия profile applied, `.youtube.com` was routed
+      // to the proxy by a zone rule placed BEFORE the ad-block rule, so ad hosts
+      // under it (ads.youtube.com) matched routing first and were never
+      // rejected — the toggle looked broken. Blocking must win.
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
+      const settings = VpnSettings(
+        blockAds: true,
+        domainZoneRules: {'youtube.com': 'proxy'},
+      );
+      final rules =
+          ((const SingBoxConfigBuilder(
+                        isAndroid: true,
+                      ).build(node, settings)['route']
+                      as Map)['rules']
+                  as List)
+              .cast<Map>();
+      final adsIndex = rules.indexWhere(
+        (r) => r['rule_set'] == 'geosite-ads' && r['action'] == 'reject',
+      );
+      final zoneIndex = rules.indexWhere(
+        (r) =>
+            r['domain_suffix'] is List &&
+            (r['domain_suffix'] as List).contains('.youtube.com'),
+      );
+      expect(adsIndex, isNonNegative);
+      expect(zoneIndex, isNonNegative);
+      expect(adsIndex, lessThan(zoneIndex));
+    });
+
     test('desktop per-process profile routes a process through its server', () {
       final active = parser.parseLink(
         'vless://uuid@a.com:443?security=tls&sni=a.com#A',

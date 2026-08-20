@@ -61,7 +61,14 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
       state = state.copyWith(stats: s);
       _maybeAutoRefresh();
     });
+    // Remember the last server that actually carried traffic, so it leads the
+    // failover order next time (survives restarts).
+    final saved = _ref.read(storageProvider).readMap(_kLastWorking);
+    final id = saved?['id'];
+    if (id is String && id.isNotEmpty) _lastWorkingNodeId = id;
   }
+
+  static const _kLastWorking = 'aurora.lastworking';
 
   // Stats arrive from the native service every second and keep flowing while
   // the app is backgrounded (the VPN foreground service keeps the process
@@ -92,6 +99,8 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
   bool _transitioning = false;
   String? _desiredNodeId;
   List<String> _desiredCandidateIds = const [];
+  // Id of the server that most recently passed the traffic probe.
+  String? _lastWorkingNodeId;
 
   bool get isRealCore => _engine.isRealCore;
   String get backendLabel => _engine.backendLabel;
@@ -213,7 +222,9 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
         candidates = pool;
       } else if (current != null) {
         candidates = [
-          ..._fallbackCandidates(current).where((n) => n.id != current.id).take(3),
+          ..._fallbackCandidates(
+            current,
+          ).where((n) => n.id != current.id).take(3),
           current,
         ];
       } else {
@@ -316,6 +327,14 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     await _connectVerified(node);
   }
 
+  /// Records [id] as the last server that carried traffic, persisted so it leads
+  /// the failover order on the next connect (and after a restart).
+  void _markWorking(String id) {
+    if (_lastWorkingNodeId == id) return;
+    _lastWorkingNodeId = id;
+    unawaited(_ref.read(storageProvider).writeJson(_kLastWorking, {'id': id}));
+  }
+
   Future<void> _connectVerified(
     ProxyNode preferred, {
     List<ProxyNode>? candidatesOverride,
@@ -325,15 +344,19 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
     state = state.copyWith(clearMessage: true);
     final raw =
         candidatesOverride ?? _fallbackCandidates(preferred).take(4).toList();
-    // Try servers that aren't known-dead first — demote ones whose last ping
-    // timed out (latencyMs < 0) to the end, preserving the user's order within
-    // each group. This reaches a working server quickly instead of burning the
+    // Order: the last server that actually carried traffic first (most likely to
+    // work again), then servers that aren't known-dead, then ones whose last
+    // ping timed out (latencyMs < 0). The user's order is preserved within each
+    // group. This reaches a working server quickly instead of burning the
     // per-candidate connect+probe budget on servers that just timed out.
+    final last = _lastWorkingNodeId;
     final candidates = [
       for (final n in raw)
-        if ((n.latencyMs ?? 0) >= 0) n,
+        if (n.id == last) n,
       for (final n in raw)
-        if ((n.latencyMs ?? 0) < 0) n,
+        if (n.id != last && (n.latencyMs ?? 0) >= 0) n,
+      for (final n in raw)
+        if (n.id != last && (n.latencyMs ?? 0) < 0) n,
     ];
 
     try {
@@ -378,6 +401,7 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
         if (operation != _operation) return;
         if (reachable) {
           _desiredNodeId = node.id;
+          _markWorking(node.id);
           _reconnectPolicy.reset();
           _reconnectTimer?.cancel();
           _reconnectTimer = null;
@@ -404,7 +428,9 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
       if (connectedFallback != null) {
         if (_desiredNodeId != connectedFallback.id) {
           _desiredNodeId = connectedFallback.id;
-          _ref.read(settingsProvider.notifier).setActiveNode(connectedFallback.id);
+          _ref
+              .read(settingsProvider.notifier)
+              .setActiveNode(connectedFallback.id);
           try {
             await _engine.replace(
               connectedFallback,
@@ -419,7 +445,8 @@ class ConnectionController extends StateNotifier<ConnectionUiState> {
         _reconnectTimer?.cancel();
         _reconnectTimer = null;
         state = state.copyWith(
-          message: 'Подключено. Проверка трафика не прошла — '
+          message:
+              'Подключено. Проверка трафика не прошла — '
               'если сайты не открываются, смените сервер.',
         );
         return;

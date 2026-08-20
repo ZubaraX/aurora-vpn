@@ -216,6 +216,15 @@ class SingBoxConfigBuilder {
       {'protocol': 'dns', 'action': 'hijack-dns'},
     ];
 
+    // Ad blocking first: it is a global on/off switch, and "reject" is a
+    // stronger intent than any routing preference. Placed after the zone rules
+    // it was silently shadowed — the Россия profile routes `.youtube.com` to the
+    // proxy, so every ad host under it (ads.youtube.com …) matched that rule and
+    // was never rejected, while ad hosts outside any zone were.
+    if (s.blockAds) {
+      rules.add({'rule_set': 'geosite-ads', 'action': 'reject'});
+    }
+
     // Pin the bootstrap DoH resolver's IP to the direct outbound so it is
     // reachable before the tunnel exists and never loops back into the TUN.
     final bootstrapHost = _dnsHost(s.dnsDirect);
@@ -265,9 +274,6 @@ class SingBoxConfigBuilder {
     }
     // User domain-zone rules win over the default rule-set routing below.
     rules.addAll(_domainZoneRules(s, zoneServerIds));
-    if (s.blockAds) {
-      rules.add({'rule_set': 'geosite-ads', 'action': 'reject'});
-    }
     if (s.routingMode == RoutingMode.rule) {
       rules.add({
         'rule_set': ['geosite-cn', 'geoip-cn'],

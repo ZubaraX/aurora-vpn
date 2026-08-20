@@ -55,6 +55,9 @@ class _RootShellState extends ConsumerState<RootShell>
   bool _checkingUpdate = false;
   DateTime _lastTriggerSwitch = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastUpdateCheck = DateTime.fromMillisecondsSinceEpoch(0);
+  // Last upstream network type acted on, so a Wi-Fi↔mobile change can bypass the
+  // long app-churn cool-down.
+  String _lastNetworkType = '';
 
   @override
   void initState() {
@@ -140,16 +143,6 @@ class _RootShellState extends ConsumerState<RootShell>
   /// manual disconnect while the trigger app keeps running.
   Future<void> _checkTriggerApps() async {
     if (_checkingTriggers) return;
-    // Cool-down after a trigger-initiated switch. Flipping quickly between two
-    // trigger apps that use different servers (YouTube ↔ Telegram) otherwise
-    // restarts the core on every switch, so the tunnel never settles and the
-    // connection appears to drop. Skipping the evaluation entirely (rather than
-    // discarding the action) keeps the monitor's state intact, so the correct
-    // profile is still applied once things calm down.
-    if (DateTime.now().difference(_lastTriggerSwitch) <
-        const Duration(seconds: 20)) {
-      return;
-    }
     _checkingTriggers = true;
     try {
       final settings = ref.read(settingsProvider);
@@ -166,6 +159,24 @@ class _RootShellState extends ConsumerState<RootShell>
       if (!mounted) return;
       final running = results[0] as Set<String>;
       final networkType = results[1] as String;
+
+      // Cool-down after a trigger-initiated switch. Flipping quickly between two
+      // trigger apps that use different servers (YouTube ↔ Telegram) otherwise
+      // restarts the core on every switch, so the tunnel never settles and the
+      // connection appears to drop.
+      //
+      // But a physical network change (Wi-Fi ↔ mobile) is rare and must swap the
+      // Wi-Fi/mobile profile promptly — the long app-churn window made that feel
+      // stuck for up to 20s. So a network change uses a much shorter cool-down.
+      // _lastNetworkType is committed only once we pass the cool-down, so a
+      // change arriving mid-window is retried on the next tick, never dropped.
+      final networkChanged = networkType != _lastNetworkType;
+      final cooldown = networkChanged
+          ? const Duration(seconds: 5)
+          : const Duration(seconds: 20);
+      if (DateTime.now().difference(_lastTriggerSwitch) < cooldown) return;
+      _lastNetworkType = networkType;
+
       final connection = ref.read(connectionProvider);
       final action = _triggerMonitor.evaluate(
         settings: settings,
