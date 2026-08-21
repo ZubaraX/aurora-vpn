@@ -142,6 +142,41 @@ void main() {
       expect(route['final'], 'direct');
     });
 
+    test('hotspot sharing adds a LAN proxy inbound, off by default', () {
+      final node = parser.parseLink(
+        'vless://uuid@a.com:443?security=tls&sni=a.com#A',
+      )!;
+      // Off: TUN only — nothing listens on the local network.
+      final off = const SingBoxConfigBuilder(
+        isAndroid: true,
+      ).build(node, const VpnSettings());
+      expect((off['inbounds'] as List).length, 1);
+
+      const on = VpnSettings(lanProxy: true, lanProxyPort: 3128);
+      final cfg = const SingBoxConfigBuilder(isAndroid: true).build(node, on);
+      final lan = (cfg['inbounds'] as List).cast<Map>().firstWhere(
+        (i) => i['tag'] == 'lan-in',
+      );
+      // "mixed" serves SOCKS5 and HTTP on one port, which is what a phone or a
+      // TV expects when you hand it a proxy address.
+      expect(lan['type'], 'mixed');
+      expect(lan['listen'], '0.0.0.0');
+      expect(lan['listen_port'], 3128);
+    });
+
+    test('a stored out-of-range proxy port falls back to the default', () {
+      // A bad value must never reach the core: it would refuse to start and the
+      // tunnel would be dead until the user found the setting.
+      for (final bad in [0, 80, 70000, -1]) {
+        expect(
+          VpnSettings.fromJson({'lanProxyPort': bad}).lanProxyPort,
+          2080,
+          reason: 'port $bad should fall back',
+        );
+      }
+      expect(VpnSettings.fromJson({'lanProxyPort': 8888}).lanProxyPort, 8888);
+    });
+
     test('ad blocking is evaluated before user domain-zone rules', () {
       // Regression: with the Россия profile applied, `.youtube.com` was routed
       // to the proxy by a zone rule placed BEFORE the ad-block rule, so ad hosts

@@ -28,7 +28,21 @@ class SingBoxConfigBuilder {
       // from the diagnostics screen.
       'log': {'level': 'info', 'timestamp': true},
       'dns': _dns(s),
-      'inbounds': [_tunInbound(s)],
+      'inbounds': [
+        _tunInbound(s),
+        // Sharing the tunnel with hotspot clients. Tethered traffic never
+        // reaches our TUN (Android forwards it in the kernel, outside the
+        // VpnService), so the only way to serve those devices is to let them
+        // talk to us as a proxy. Reachable from the whole local network, which
+        // is the point — and why it is off by default.
+        if (s.lanProxy)
+          {
+            'type': 'mixed',
+            'tag': 'lan-in',
+            'listen': '0.0.0.0',
+            'listen_port': s.lanProxyPort,
+          },
+      ],
       'outbounds': [
         // Resolve THIS server's own domain via the direct resolver so it can be
         // reached before the tunnel exists. Everything else (route-time domain

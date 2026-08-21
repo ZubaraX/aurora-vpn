@@ -176,6 +176,8 @@ class SettingsController extends StateNotifier<VpnSettings> {
   void setTunStack(TunStack v) => _commit(state.copyWith(tunStack: v));
   void setBypassLan(bool v) => _commit(state.copyWith(bypassLan: v));
   void setBlockAds(bool v) => _commit(state.copyWith(blockAds: v));
+  void setLanProxy(bool v) => _commit(state.copyWith(lanProxy: v));
+  void setLanProxyPort(int v) => _commit(state.copyWith(lanProxyPort: v));
   void setIpv6(bool v) => _commit(state.copyWith(ipv6: v));
   void setAutoConnect(bool v) => _commit(state.copyWith(autoConnect: v));
   void setKillSwitch(bool v) => _commit(state.copyWith(killSwitch: v));
