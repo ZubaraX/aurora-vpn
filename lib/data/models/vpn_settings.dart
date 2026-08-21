@@ -32,8 +32,6 @@ class VpnSettings {
     this.tunStack = TunStack.mixed,
     this.bypassLan = true,
     this.blockAds = false,
-    this.lanProxy = false,
-    this.lanProxyPort = 2080,
     this.ipv6 = false,
     this.dnsRemote = 'https://1.1.1.1/dns-query',
     this.dnsDirect = kDefaultDirectDns,
@@ -78,16 +76,6 @@ class VpnSettings {
   final TunStack tunStack;
   final bool bypassLan;
   final bool blockAds;
-
-  /// Exposes a SOCKS5/HTTP proxy on the local network so devices connected to
-  /// this machine's hotspot can reach the internet through the tunnel.
-  ///
-  /// Android deliberately keeps tethered traffic out of a VpnService — it is
-  /// forwarded in the kernel and never passes through our TUN — so on a
-  /// non-rooted phone this proxy is the only way to share the VPN. Clients set
-  /// the hotspot gateway address and [lanProxyPort] as their proxy by hand.
-  final bool lanProxy;
-  final int lanProxyPort;
   final bool ipv6;
   final String dnsRemote;
   final String dnsDirect;
@@ -112,8 +100,6 @@ class VpnSettings {
     TunStack? tunStack,
     bool? bypassLan,
     bool? blockAds,
-    bool? lanProxy,
-    int? lanProxyPort,
     bool? ipv6,
     String? dnsRemote,
     String? dnsDirect,
@@ -138,8 +124,6 @@ class VpnSettings {
     tunStack: tunStack ?? this.tunStack,
     bypassLan: bypassLan ?? this.bypassLan,
     blockAds: blockAds ?? this.blockAds,
-    lanProxy: lanProxy ?? this.lanProxy,
-    lanProxyPort: lanProxyPort ?? this.lanProxyPort,
     ipv6: ipv6 ?? this.ipv6,
     dnsRemote: dnsRemote ?? this.dnsRemote,
     dnsDirect: dnsDirect ?? this.dnsDirect,
@@ -165,8 +149,6 @@ class VpnSettings {
     'tunStack': tunStack.name,
     'bypassLan': bypassLan,
     'blockAds': blockAds,
-    'lanProxy': lanProxy,
-    'lanProxyPort': lanProxyPort,
     'ipv6': ipv6,
     'dnsRemote': dnsRemote,
     'dnsDirect': dnsDirect,
@@ -200,8 +182,6 @@ class VpnSettings {
     tunStack: _enum(TunStack.values, j['tunStack'], TunStack.mixed),
     bypassLan: _bool(j['bypassLan'], true),
     blockAds: _bool(j['blockAds'], false),
-    lanProxy: _bool(j['lanProxy'], false),
-    lanProxyPort: _port(j['lanProxyPort'], 2080),
     ipv6: _bool(j['ipv6'], false),
     dnsRemote: _str(j['dnsRemote'], 'https://1.1.1.1/dns-query'),
     // Migrate the old encrypted direct resolver: on white-list networks it is
@@ -227,14 +207,6 @@ class VpnSettings {
     if (raw is num) return raw != 0;
     if (raw is String) return raw == 'true' || raw == '1';
     return fallback;
-  }
-
-  /// A listening port, clamped to the usable non-privileged range so a bad
-  /// stored value can never produce a config the core refuses to start.
-  static int _port(Object? raw, int fallback) {
-    final v = raw is num ? raw.toInt() : int.tryParse('$raw');
-    if (v == null || v < 1024 || v > 65535) return fallback;
-    return v;
   }
 
   static String _str(Object? raw, String fallback) =>

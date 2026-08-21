@@ -95,19 +95,6 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     _tileDivider(),
                     _SwitchTile(
-                      icon: Icons.wifi_tethering_rounded,
-                      title: 'Раздача через точку доступа',
-                      subtitle: s.lanProxy
-                          ? 'Прокси на порту ${s.lanProxyPort}. На клиенте укажите '
-                                'адрес этого устройства и этот порт вручную'
-                          : 'Устройства из точки доступа смогут выходить через VPN '
-                                'по прокси. Доступен всем в этой сети',
-                      value: s.lanProxy,
-                      onChanged: (v) => applied(() => ctrl.setLanProxy(v)),
-                    ),
-                    if (s.lanProxy) _LanProxyHint(port: s.lanProxyPort),
-                    _tileDivider(),
-                    _SwitchTile(
                       icon: Icons.public_rounded,
                       title: 'IPv6',
                       subtitle: 'Двойной стек в туннеле',
@@ -316,62 +303,6 @@ class SettingsScreen extends ConsumerWidget {
 }
 
 /// User routing rules by domain zone (e.g. `.ru → напрямую`).
-/// Shows the addresses a hotspot client should point its proxy at. The hotspot
-/// gateway gets a fresh address every session (172.28.x.x, 192.168.43.x, …), so
-/// printing the live list beats telling the user to go hunting for it.
-class _LanProxyHint extends StatelessWidget {
-  const _LanProxyHint({required this.port});
-  final int port;
-
-  Future<List<String>> _addresses() async {
-    try {
-      final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-        includeLoopback: false,
-      );
-      return [
-        for (final i in interfaces)
-          for (final a in i.addresses)
-            // Skip our own TUN: a client can never reach that address.
-            if (!a.address.startsWith('172.19.0.')) '${a.address}:$port',
-      ];
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<String>>(
-      future: _addresses(),
-      builder: (context, snap) {
-        final list = snap.data ?? const <String>[];
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(56, 0, 18, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                list.isEmpty
-                    ? 'Адрес появится, когда точка доступа заработает'
-                    : 'Укажите на клиенте (HTTP или SOCKS5):',
-                style: AppType.ui(11.5, color: AppColors.mistDim),
-              ),
-              for (final a in list) ...[
-                const SizedBox(height: 4),
-                SelectableText(
-                  a,
-                  style: AppType.mono(12.5, color: AppColors.auroraTeal),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _DomainZonesCard extends ConsumerStatefulWidget {
   const _DomainZonesCard();
 
